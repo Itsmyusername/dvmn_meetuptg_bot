@@ -35,13 +35,13 @@ venv.bak/
 local_settings.py
 db.sqlite3
 db.sqlite3-journal
-/media
+/meetup_tg_bot/media
 /staticfiles
 /static
 
 # IDE
 .vscode/
-.idea/
+../.idea/
 *.swp
 *.swo
 *~
@@ -64,3 +64,6 @@ coverage.xml
 .hypothesis/
 .pytest_cache/
 
+/meetup_tg_bot/staticfiles/
+/meetup_tg_bot/static/
+/db/

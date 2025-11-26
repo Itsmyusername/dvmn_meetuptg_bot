@@ -1,0 +1,63 @@
+services:
+  db:
+    image: postgres:16
+    restart: unless-stopped
+    env_file:
+      - ../.env
+    volumes:
+      - ../db:/var/lib/postgresql/data
+    ports:
+      - "127.0.0.1:5432:5432"
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB -h localhost -p 5432" ]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
+
+  backend-collectstatic:
+    build:
+      context: ..
+      dockerfile: ./meetup_tg_bot/Dockerfile
+      target: static
+    env_file:
+      - ../.env
+    volumes:
+      - ../meetup_tg_bot:/app/meetup_tg_bot
+      - ../meetup_tg_bot/static:/app/static
+      - ../meetup_tg_bot/staticfiles:/app/staticfiles
+    command: sh -lc "python manage.py collectstatic --noinput"
+    restart: "no"
+
+  backend-migrate:
+    build:
+      context: ..
+      dockerfile: ./meetup_tg_bot/Dockerfile
+      target: migrate
+    env_file:
+      - ../.env
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: "no"
+
+  web:
+    build:
+      context: ..
+      dockerfile: ./meetup_tg_bot/Dockerfile
+      target: web-dev
+    restart: unless-stopped
+    env_file:
+      - ../.env
+    volumes:
+      - ../meetup_tg_bot:/app:rw
+      - ../meetup_tg_bot/media:/app/media:rw
+      - ../meetup_tg_bot/staticfiles:/app/staticfiles:rw
+    ports:
+      - "127.0.0.1:8000:8000"
+    command: >
+      gunicorn meetuptg_bot.wsgi:application
+      --bind 0.0.0.0:8000
+    depends_on:
+      - db
+      - backend-migrate
