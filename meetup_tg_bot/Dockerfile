@@ -82,3 +82,6 @@ COPY --from=py-deps /usr/local /usr/local
 
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
+
+# копируем backend
+COPY . .
