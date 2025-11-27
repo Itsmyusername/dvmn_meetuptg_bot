@@ -48,8 +48,8 @@ ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
 
 # копируем backend
-COPY . .
-#CMD sh -c "python manage.py makemigrations --noinput && python manage.py migrate --noinput"
+COPY ./meetup_tg_bot .
+
 CMD ["python", "manage.py", "migrate", "--noinput"]
 
 
