@@ -18,17 +18,24 @@ from .constants import (
     CB_NETWORKING,
     CB_NETWORK_START,
     CB_NETWORK_SEARCH,
+    CB_ORGANIZER_MENU,
     CB_PROGRAM,
     CB_QUESTION,
+    CB_SPEAKER_MENU,
     CB_SUBSCRIBE,
+    CB_TALK_FINISH_PREFIX,
+    CB_TALK_START_PREFIX,
     CB_MATCH_ACCEPT,
     CB_MATCH_SKIP,
     CB_MATCH_STOP,
     CMD_ASK,
+    CMD_ANNOUNCE,
     CMD_DONATE,
     CMD_HEALTH,
     CMD_NETWORKING,
+    CMD_ORGANIZER,
     CMD_PROGRAM,
+    CMD_SPEAKER,
     CMD_START,
     CMD_SUBSCRIBE,
     CMD_CANCEL,
@@ -58,10 +65,16 @@ def build_application(token: str) -> Application:
         networking_stack,
         networking_start,
         networking_stop,
+        organizer_menu,
         program,
         start,
+        speaker_menu,
         subscribe_choice,
         subscribe_start,
+        talk_finish,
+        talk_start,
+        announce_start,
+        announce_send,
         unknown_command,
     )
 
@@ -70,14 +83,36 @@ def build_application(token: str) -> Application:
     application.add_handler(CommandHandler(CMD_START, start))
     application.add_handler(CommandHandler(CMD_PROGRAM, program))
     application.add_handler(CommandHandler(CMD_HEALTH, health))
+    application.add_handler(CommandHandler(CMD_SPEAKER, speaker_menu))
+    application.add_handler(CommandHandler(CMD_ORGANIZER, organizer_menu))
 
-    
-    application.add_handler(CallbackQueryHandler(handle_menu_callback, pattern='^menu_'), group=0)
+    application.add_handler(
+        CallbackQueryHandler(
+            handle_menu_callback,
+            pattern='^menu_(program|question|networking|donate|subscribe|speaker|organizer|main)$',
+        ),
+        group=0,
+    )
+    application.add_handler(CallbackQueryHandler(talk_start, pattern=f'^{CB_TALK_START_PREFIX}\\d+$'), group=0)
+    application.add_handler(CallbackQueryHandler(talk_finish, pattern=f'^{CB_TALK_FINISH_PREFIX}\\d+$'), group=0)
 
     ask_conv = ConversationHandler(
-        entry_points=[CommandHandler(CMD_ASK, ask_start)],
+        entry_points=[
+            CommandHandler(CMD_ASK, ask_start),
+            CallbackQueryHandler(ask_start, pattern=f'^{CB_QUESTION}$'),
+            CallbackQueryHandler(ask_start, pattern='^talk_select_\\d+$'),
+        ],
         states={
             BotState.ASK_TEXT: [MessageHandler(filters.TEXT & ~filters.COMMAND, ask_save)],
+        },
+        fallbacks=[CommandHandler(CMD_CANCEL, cancel)],
+        allow_reentry=True,
+    )
+
+    announce_conv = ConversationHandler(
+        entry_points=[CommandHandler(CMD_ANNOUNCE, announce_start)],
+        states={
+            BotState.ANNOUNCE_TEXT: [MessageHandler(filters.TEXT & ~filters.COMMAND, announce_send)],
         },
         fallbacks=[CommandHandler(CMD_CANCEL, cancel)],
         allow_reentry=True,
@@ -127,6 +162,7 @@ def build_application(token: str) -> Application:
     application.add_handler(networking_conv, group=1)
     application.add_handler(donate_conv, group=1)
     application.add_handler(subscribe_conv, group=1)
+    application.add_handler(announce_conv, group=1)
 
     # неизвестные команды
     application.add_handler(MessageHandler(filters.COMMAND, unknown_command))

@@ -1,0 +1,173 @@
+[
+  {
+    "model": "meetbot.place",
+    "pk": 1,
+    "fields": {
+      "name": "Технопарк Москва",
+      "address": "Москва, ул. Примерная, 1",
+      "description": "Главный зал и уютный холл с пиццей"
+    }
+  },
+  {
+    "model": "meetbot.event",
+    "pk": 1,
+    "fields": {
+      "name": "Python Meetup Moscow",
+      "description": "Живые доклады, вопросы через бота и нетворкинг с пиццей.",
+      "place": 1,
+      "start_at": "2024-05-10T15:00:00Z",
+      "end_at": "2024-05-10T19:00:00Z",
+      "is_active": true,
+      "is_published": true,
+      "announcements_enabled": true,
+      "current_talk": null,
+      "created_at": "2024-05-01T10:00:00Z",
+      "updated_at": "2024-05-01T10:00:00Z"
+    }
+  },
+  {
+    "model": "meetbot.participant",
+    "pk": 1,
+    "fields": {
+      "tg_id": 1001,
+      "tg_username": "organizer_val",
+      "first_name": "Валентин",
+      "last_name": "",
+      "is_organizer": true,
+      "is_speaker": false,
+      "wants_notifications": true,
+      "created_at": "2024-05-01T10:00:00Z",
+      "updated_at": "2024-05-01T10:00:00Z"
+    }
+  },
+  {
+    "model": "meetbot.participant",
+    "pk": 2,
+    "fields": {
+      "tg_id": 2001,
+      "tg_username": "speaker_py",
+      "first_name": "Антон",
+      "last_name": "Backend",
+      "is_organizer": false,
+      "is_speaker": true,
+      "wants_notifications": true,
+      "created_at": "2024-05-01T10:00:00Z",
+      "updated_at": "2024-05-01T10:00:00Z"
+    }
+  },
+  {
+    "model": "meetbot.participant",
+    "pk": 3,
+    "fields": {
+      "tg_id": 2002,
+      "tg_username": "speaker_ml",
+      "first_name": "Мария",
+      "last_name": "ML",
+      "is_organizer": false,
+      "is_speaker": true,
+      "wants_notifications": true,
+      "created_at": "2024-05-01T10:00:00Z",
+      "updated_at": "2024-05-01T10:00:00Z"
+    }
+  },
+  {
+    "model": "meetbot.participant",
+    "pk": 4,
+    "fields": {
+      "tg_id": 3001,
+      "tg_username": "guest_anna",
+      "first_name": "Анна",
+      "last_name": "Data",
+      "is_organizer": false,
+      "is_speaker": false,
+      "wants_notifications": true,
+      "created_at": "2024-05-01T10:00:00Z",
+      "updated_at": "2024-05-01T10:00:00Z"
+    }
+  },
+  {
+    "model": "meetbot.participant",
+    "pk": 5,
+    "fields": {
+      "tg_id": 3002,
+      "tg_username": "guest_bob",
+      "first_name": "Боб",
+      "last_name": "QA",
+      "is_organizer": false,
+      "is_speaker": false,
+      "wants_notifications": true,
+      "created_at": "2024-05-01T10:00:00Z",
+      "updated_at": "2024-05-01T10:00:00Z"
+    }
+  },
+  {
+    "model": "meetbot.talk",
+    "pk": 1,
+    "fields": {
+      "event": 1,
+      "title": "Асинхронщина в Python без боли",
+      "description": "Практические приёмы, чтобы не терять запросы и отвечать быстро.",
+      "speaker": 2,
+      "start_at": "2024-05-10T15:00:00Z",
+      "end_at": "2024-05-10T15:40:00Z",
+      "order": 1,
+      "room": "Основной зал",
+      "status": "in_progress",
+      "is_current": true,
+      "created_at": "2024-05-01T10:00:00Z",
+      "updated_at": "2024-05-01T10:00:00Z"
+    }
+  },
+  {
+    "model": "meetbot.talk",
+    "pk": 2,
+    "fields": {
+      "event": 1,
+      "title": "ML в проде: что может пойти не так",
+      "description": "Опыт запуска моделей и борьба с дрифтами данных.",
+      "speaker": 3,
+      "start_at": "2024-05-10T15:45:00Z",
+      "end_at": "2024-05-10T16:25:00Z",
+      "order": 2,
+      "room": "Основной зал",
+      "status": "scheduled",
+      "is_current": false,
+      "created_at": "2024-05-01T10:00:00Z",
+      "updated_at": "2024-05-01T10:00:00Z"
+    }
+  },
+  {
+    "model": "meetbot.networkingprofile",
+    "pk": 1,
+    "fields": {
+      "participant": 4,
+      "event": 1,
+      "role": "Backend",
+      "company": "FinTech",
+      "stack": "Python, FastAPI, Postgres",
+      "interests": "Архитектура сервисов, оптимизация запросов",
+      "goals": "Найти коллег для обмена опытом",
+      "contact": "@guest_anna",
+      "is_active": true,
+      "created_at": "2024-05-01T10:00:00Z",
+      "updated_at": "2024-05-01T10:00:00Z"
+    }
+  },
+  {
+    "model": "meetbot.networkingprofile",
+    "pk": 2,
+    "fields": {
+      "participant": 5,
+      "event": 1,
+      "role": "QA / Автотесты",
+      "company": "Marketplace",
+      "stack": "Python, Playwright, Pytest",
+      "interests": "Как тестировать асинхронные сервисы, devtools",
+      "goals": "Познакомиться с разработчиками",
+      "contact": "@guest_bob",
+      "is_active": true,
+      "created_at": "2024-05-01T10:00:00Z",
+      "updated_at": "2024-05-01T10:00:00Z"
+    }
+  }
+]

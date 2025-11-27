@@ -55,3 +55,14 @@
     После запуска сайт будет доступен по адресу: [http://localhost:8000/](http://localhost:8000/).
 
     Админка - [http://localhost:8000/admin/](http://127.0.0.1:8000/admin/).
+
+4. **Загрузить демонстрационные данные (место, событие, доклады, роли, анкеты):**
+   ```shell
+   cd local_deployment
+   docker compose -f docker-compose-dev.yml run --rm web sh -lc 'python manage.py loaddata meetbot/fixtures/sample_data.json'
+   ```
+
+   После этого в админке уже будут:
+   - Организатор Валентин (`tg_id=1001`, username `organizer_val`)
+   - Два докладчика (`speaker_py`, `speaker_ml`) и два участника с анкетами для нетворкинга
+   - Активное событие с двумя докладами; первый уже отмечен как текущий
