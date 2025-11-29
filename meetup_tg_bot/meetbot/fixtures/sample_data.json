@@ -169,5 +169,615 @@
       "created_at": "2024-05-01T10:00:00Z",
       "updated_at": "2024-05-01T10:00:00Z"
     }
+  },
+  {
+    "model": "meetbot.participant",
+    "pk": 6,
+    "fields": {
+      "tg_id": 3006,
+      "tg_username": "guest_extra_6",
+      "first_name": "Гость6",
+      "last_name": "",
+      "is_organizer": false,
+      "is_speaker": false,
+      "wants_notifications": true,
+      "created_at": "2024-05-01T10:00:00Z",
+      "updated_at": "2024-05-01T10:00:00Z"
+    }
+  },
+  {
+    "model": "meetbot.participant",
+    "pk": 7,
+    "fields": {
+      "tg_id": 3007,
+      "tg_username": "guest_extra_7",
+      "first_name": "Гость7",
+      "last_name": "",
+      "is_organizer": false,
+      "is_speaker": false,
+      "wants_notifications": true,
+      "created_at": "2024-05-01T10:00:00Z",
+      "updated_at": "2024-05-01T10:00:00Z"
+    }
+  },
+  {
+    "model": "meetbot.participant",
+    "pk": 8,
+    "fields": {
+      "tg_id": 3008,
+      "tg_username": "guest_extra_8",
+      "first_name": "Гость8",
+      "last_name": "",
+      "is_organizer": false,
+      "is_speaker": false,
+      "wants_notifications": true,
+      "created_at": "2024-05-01T10:00:00Z",
+      "updated_at": "2024-05-01T10:00:00Z"
+    }
+  },
+  {
+    "model": "meetbot.participant",
+    "pk": 9,
+    "fields": {
+      "tg_id": 3009,
+      "tg_username": "guest_extra_9",
+      "first_name": "Гость9",
+      "last_name": "",
+      "is_organizer": false,
+      "is_speaker": false,
+      "wants_notifications": true,
+      "created_at": "2024-05-01T10:00:00Z",
+      "updated_at": "2024-05-01T10:00:00Z"
+    }
+  },
+  {
+    "model": "meetbot.participant",
+    "pk": 10,
+    "fields": {
+      "tg_id": 3010,
+      "tg_username": "guest_extra_10",
+      "first_name": "Гость10",
+      "last_name": "",
+      "is_organizer": false,
+      "is_speaker": false,
+      "wants_notifications": true,
+      "created_at": "2024-05-01T10:00:00Z",
+      "updated_at": "2024-05-01T10:00:00Z"
+    }
+  },
+  {
+    "model": "meetbot.participant",
+    "pk": 11,
+    "fields": {
+      "tg_id": 3011,
+      "tg_username": "guest_extra_11",
+      "first_name": "Гость11",
+      "last_name": "",
+      "is_organizer": false,
+      "is_speaker": false,
+      "wants_notifications": true,
+      "created_at": "2024-05-01T10:00:00Z",
+      "updated_at": "2024-05-01T10:00:00Z"
+    }
+  },
+  {
+    "model": "meetbot.participant",
+    "pk": 12,
+    "fields": {
+      "tg_id": 3012,
+      "tg_username": "guest_extra_12",
+      "first_name": "Гость12",
+      "last_name": "",
+      "is_organizer": false,
+      "is_speaker": false,
+      "wants_notifications": true,
+      "created_at": "2024-05-01T10:00:00Z",
+      "updated_at": "2024-05-01T10:00:00Z"
+    }
+  },
+  {
+    "model": "meetbot.participant",
+    "pk": 13,
+    "fields": {
+      "tg_id": 3013,
+      "tg_username": "guest_extra_13",
+      "first_name": "Гость13",
+      "last_name": "",
+      "is_organizer": false,
+      "is_speaker": false,
+      "wants_notifications": true,
+      "created_at": "2024-05-01T10:00:00Z",
+      "updated_at": "2024-05-01T10:00:00Z"
+    }
+  },
+  {
+    "model": "meetbot.participant",
+    "pk": 14,
+    "fields": {
+      "tg_id": 3014,
+      "tg_username": "guest_extra_14",
+      "first_name": "Гость14",
+      "last_name": "",
+      "is_organizer": false,
+      "is_speaker": false,
+      "wants_notifications": true,
+      "created_at": "2024-05-01T10:00:00Z",
+      "updated_at": "2024-05-01T10:00:00Z"
+    }
+  },
+  {
+    "model": "meetbot.participant",
+    "pk": 15,
+    "fields": {
+      "tg_id": 3015,
+      "tg_username": "guest_extra_15",
+      "first_name": "Гость15",
+      "last_name": "",
+      "is_organizer": false,
+      "is_speaker": false,
+      "wants_notifications": true,
+      "created_at": "2024-05-01T10:00:00Z",
+      "updated_at": "2024-05-01T10:00:00Z"
+    }
+  },
+  {
+    "model": "meetbot.talk",
+    "pk": 3,
+    "fields": {
+      "event": 1,
+      "title": "Доп. доклад 3",
+      "description": "Проверка программы",
+      "speaker": 3,
+      "start_at": "2024-05-10T16:30:00Z",
+      "end_at": "2024-05-10T17:10:00Z",
+      "order": 3,
+      "room": "Основной зал",
+      "status": "scheduled",
+      "is_current": false,
+      "created_at": "2024-05-01T10:00:00Z",
+      "updated_at": "2024-05-01T10:00:00Z"
+    }
+  },
+  {
+    "model": "meetbot.talk",
+    "pk": 4,
+    "fields": {
+      "event": 1,
+      "title": "Доп. доклад 4",
+      "description": "Проверка программы",
+      "speaker": 2,
+      "start_at": "2024-05-10T17:15:00Z",
+      "end_at": "2024-05-10T17:55:00Z",
+      "order": 4,
+      "room": "Основной зал",
+      "status": "scheduled",
+      "is_current": false,
+      "created_at": "2024-05-01T10:00:00Z",
+      "updated_at": "2024-05-01T10:00:00Z"
+    }
+  },
+  {
+    "model": "meetbot.talk",
+    "pk": 5,
+    "fields": {
+      "event": 1,
+      "title": "Доп. доклад 5",
+      "description": "Проверка программы",
+      "speaker": 3,
+      "start_at": "2024-05-10T18:00:00Z",
+      "end_at": "2024-05-10T18:40:00Z",
+      "order": 5,
+      "room": "Основной зал",
+      "status": "scheduled",
+      "is_current": false,
+      "created_at": "2024-05-01T10:00:00Z",
+      "updated_at": "2024-05-01T10:00:00Z"
+    }
+  },
+  {
+    "model": "meetbot.talk",
+    "pk": 6,
+    "fields": {
+      "event": 1,
+      "title": "Доп. доклад 6",
+      "description": "Проверка программы",
+      "speaker": 2,
+      "start_at": "2024-05-10T18:45:00Z",
+      "end_at": "2024-05-10T19:25:00Z",
+      "order": 6,
+      "room": "Основной зал",
+      "status": "scheduled",
+      "is_current": false,
+      "created_at": "2024-05-01T10:00:00Z",
+      "updated_at": "2024-05-01T10:00:00Z"
+    }
+  },
+  {
+    "model": "meetbot.networkingprofile",
+    "pk": 3,
+    "fields": {
+      "participant": 6,
+      "event": 1,
+      "role": "Dev",
+      "company": "TestCo",
+      "stack": "Python",
+      "interests": "Networking",
+      "goals": "Проверка",
+      "contact": "@guest_extra_6",
+      "is_active": true,
+      "created_at": "2024-05-01T10:00:00Z",
+      "updated_at": "2024-05-01T10:00:00Z"
+    }
+  },
+  {
+    "model": "meetbot.networkingprofile",
+    "pk": 4,
+    "fields": {
+      "participant": 7,
+      "event": 1,
+      "role": "Dev",
+      "company": "TestCo",
+      "stack": "Python",
+      "interests": "Networking",
+      "goals": "Проверка",
+      "contact": "@guest_extra_7",
+      "is_active": true,
+      "created_at": "2024-05-01T10:00:00Z",
+      "updated_at": "2024-05-01T10:00:00Z"
+    }
+  },
+  {
+    "model": "meetbot.networkingprofile",
+    "pk": 5,
+    "fields": {
+      "participant": 8,
+      "event": 1,
+      "role": "Dev",
+      "company": "TestCo",
+      "stack": "Python",
+      "interests": "Networking",
+      "goals": "Проверка",
+      "contact": "@guest_extra_8",
+      "is_active": true,
+      "created_at": "2024-05-01T10:00:00Z",
+      "updated_at": "2024-05-01T10:00:00Z"
+    }
+  },
+  {
+    "model": "meetbot.networkingprofile",
+    "pk": 6,
+    "fields": {
+      "participant": 9,
+      "event": 1,
+      "role": "Dev",
+      "company": "TestCo",
+      "stack": "Python",
+      "interests": "Networking",
+      "goals": "Проверка",
+      "contact": "@guest_extra_9",
+      "is_active": true,
+      "created_at": "2024-05-01T10:00:00Z",
+      "updated_at": "2024-05-01T10:00:00Z"
+    }
+  },
+  {
+    "model": "meetbot.networkingprofile",
+    "pk": 7,
+    "fields": {
+      "participant": 10,
+      "event": 1,
+      "role": "Dev",
+      "company": "TestCo",
+      "stack": "Python",
+      "interests": "Networking",
+      "goals": "Проверка",
+      "contact": "@guest_extra_10",
+      "is_active": true,
+      "created_at": "2024-05-01T10:00:00Z",
+      "updated_at": "2024-05-01T10:00:00Z"
+    }
+  },
+  {
+    "model": "meetbot.networkingprofile",
+    "pk": 8,
+    "fields": {
+      "participant": 11,
+      "event": 1,
+      "role": "Dev",
+      "company": "TestCo",
+      "stack": "Python",
+      "interests": "Networking",
+      "goals": "Проверка",
+      "contact": "@guest_extra_11",
+      "is_active": true,
+      "created_at": "2024-05-01T10:00:00Z",
+      "updated_at": "2024-05-01T10:00:00Z"
+    }
+  },
+  {
+    "model": "meetbot.networkingprofile",
+    "pk": 9,
+    "fields": {
+      "participant": 12,
+      "event": 1,
+      "role": "Dev",
+      "company": "TestCo",
+      "stack": "Python",
+      "interests": "Networking",
+      "goals": "Проверка",
+      "contact": "@guest_extra_12",
+      "is_active": true,
+      "created_at": "2024-05-01T10:00:00Z",
+      "updated_at": "2024-05-01T10:00:00Z"
+    }
+  },
+  {
+    "model": "meetbot.networkingprofile",
+    "pk": 10,
+    "fields": {
+      "participant": 13,
+      "event": 1,
+      "role": "Dev",
+      "company": "TestCo",
+      "stack": "Python",
+      "interests": "Networking",
+      "goals": "Проверка",
+      "contact": "@guest_extra_13",
+      "is_active": true,
+      "created_at": "2024-05-01T10:00:00Z",
+      "updated_at": "2024-05-01T10:00:00Z"
+    }
+  },
+  {
+    "model": "meetbot.networkingprofile",
+    "pk": 11,
+    "fields": {
+      "participant": 14,
+      "event": 1,
+      "role": "Dev",
+      "company": "TestCo",
+      "stack": "Python",
+      "interests": "Networking",
+      "goals": "Проверка",
+      "contact": "@guest_extra_14",
+      "is_active": true,
+      "created_at": "2024-05-01T10:00:00Z",
+      "updated_at": "2024-05-01T10:00:00Z"
+    }
+  },
+  {
+    "model": "meetbot.networkingprofile",
+    "pk": 12,
+    "fields": {
+      "participant": 15,
+      "event": 1,
+      "role": "Dev",
+      "company": "TestCo",
+      "stack": "Python",
+      "interests": "Networking",
+      "goals": "Проверка",
+      "contact": "@guest_extra_15",
+      "is_active": true,
+      "created_at": "2024-05-01T10:00:00Z",
+      "updated_at": "2024-05-01T10:00:00Z"
+    }
+  },
+  {
+    "model": "meetbot.place",
+    "pk": 2,
+    "fields": {
+      "name": "IT Hub Today",
+      "address": "Москва, Лабораторный пр., 5",
+      "description": "Площадка для сегодняшнего теста"
+    }
+  },
+  {
+    "model": "meetbot.place",
+    "pk": 3,
+    "fields": {
+      "name": "IT Hub Tomorrow",
+      "address": "Москва, Будущая ул., 10",
+      "description": "Площадка для завтрашнего теста"
+    }
+  },
+  {
+    "model": "meetbot.event",
+    "pk": 2,
+    "fields": {
+      "name": "Тестовый митап сегодня",
+      "description": "Демо событие для проверки бота",
+      "place": 2,
+      "start_at": "2025-11-29T09:00:00Z",
+      "end_at": "2025-11-29T13:00:00Z",
+      "is_active": true,
+      "is_published": true,
+      "announcements_enabled": true,
+      "current_talk": null,
+      "created_at": "2025-11-29T09:00:00Z",
+      "updated_at": "2025-11-29T09:00:00Z"
+    }
+  },
+  {
+    "model": "meetbot.event",
+    "pk": 3,
+    "fields": {
+      "name": "Тестовый митап завтра",
+      "description": "Демо событие для проверки бота",
+      "place": 3,
+      "start_at": "2025-11-30T09:00:00Z",
+      "end_at": "2025-11-30T13:00:00Z",
+      "is_active": false,
+      "is_published": true,
+      "announcements_enabled": true,
+      "current_talk": null,
+      "created_at": "2025-11-30T09:00:00Z",
+      "updated_at": "2025-11-30T09:00:00Z"
+    }
+  },
+  {
+    "model": "meetbot.participant",
+    "pk": 16,
+    "fields": {
+      "tg_id": 4016,
+      "tg_username": "tester_16",
+      "first_name": "Тест16",
+      "last_name": "",
+      "is_organizer": true,
+      "is_speaker": false,
+      "wants_notifications": true,
+      "created_at": "2024-05-01T10:00:00Z",
+      "updated_at": "2024-05-01T10:00:00Z"
+    }
+  },
+  {
+    "model": "meetbot.participant",
+    "pk": 17,
+    "fields": {
+      "tg_id": 4017,
+      "tg_username": "tester_17",
+      "first_name": "Тест17",
+      "last_name": "",
+      "is_organizer": false,
+      "is_speaker": true,
+      "wants_notifications": true,
+      "created_at": "2024-05-01T10:00:00Z",
+      "updated_at": "2024-05-01T10:00:00Z"
+    }
+  },
+  {
+    "model": "meetbot.participant",
+    "pk": 18,
+    "fields": {
+      "tg_id": 4018,
+      "tg_username": "tester_18",
+      "first_name": "Тест18",
+      "last_name": "",
+      "is_organizer": false,
+      "is_speaker": true,
+      "wants_notifications": true,
+      "created_at": "2024-05-01T10:00:00Z",
+      "updated_at": "2024-05-01T10:00:00Z"
+    }
+  },
+  {
+    "model": "meetbot.participant",
+    "pk": 19,
+    "fields": {
+      "tg_id": 4019,
+      "tg_username": "tester_19",
+      "first_name": "Тест19",
+      "last_name": "",
+      "is_organizer": false,
+      "is_speaker": false,
+      "wants_notifications": true,
+      "created_at": "2024-05-01T10:00:00Z",
+      "updated_at": "2024-05-01T10:00:00Z"
+    }
+  },
+  {
+    "model": "meetbot.talk",
+    "pk": 7,
+    "fields": {
+      "event": 2,
+      "title": "Демо доклад 7",
+      "description": "Проверка расписания",
+      "speaker": 17,
+      "start_at": "2025-11-29T09:00:00Z",
+      "end_at": "2025-11-29T09:40:00Z",
+      "order": 1,
+      "room": "Зал A",
+      "status": "scheduled",
+      "is_current": false,
+      "created_at": "2025-11-29T09:00:00Z",
+      "updated_at": "2025-11-29T09:00:00Z"
+    }
+  },
+  {
+    "model": "meetbot.talk",
+    "pk": 8,
+    "fields": {
+      "event": 2,
+      "title": "Демо доклад 8",
+      "description": "Проверка расписания",
+      "speaker": 18,
+      "start_at": "2025-11-29T10:00:00Z",
+      "end_at": "2025-11-29T10:40:00Z",
+      "order": 2,
+      "room": "Зал A",
+      "status": "scheduled",
+      "is_current": false,
+      "created_at": "2025-11-29T09:00:00Z",
+      "updated_at": "2025-11-29T09:00:00Z"
+    }
+  },
+  {
+    "model": "meetbot.talk",
+    "pk": 9,
+    "fields": {
+      "event": 3,
+      "title": "Демо доклад 9",
+      "description": "Проверка расписания",
+      "speaker": 17,
+      "start_at": "2025-11-30T09:00:00Z",
+      "end_at": "2025-11-30T09:40:00Z",
+      "order": 1,
+      "room": "Зал A",
+      "status": "scheduled",
+      "is_current": false,
+      "created_at": "2025-11-30T09:00:00Z",
+      "updated_at": "2025-11-30T09:00:00Z"
+    }
+  },
+  {
+    "model": "meetbot.talk",
+    "pk": 10,
+    "fields": {
+      "event": 3,
+      "title": "Демо доклад 10",
+      "description": "Проверка расписания",
+      "speaker": 18,
+      "start_at": "2025-11-30T10:00:00Z",
+      "end_at": "2025-11-30T10:40:00Z",
+      "order": 2,
+      "room": "Зал A",
+      "status": "scheduled",
+      "is_current": false,
+      "created_at": "2025-11-30T09:00:00Z",
+      "updated_at": "2025-11-30T09:00:00Z"
+    }
+  },
+  {
+    "model": "meetbot.networkingprofile",
+    "pk": 13,
+    "fields": {
+      "participant": 19,
+      "event": 2,
+      "role": "QA",
+      "company": "DemoCorp",
+      "stack": "Python",
+      "interests": "Общение",
+      "goals": "Проверка",
+      "contact": "@tester_19",
+      "is_active": true,
+      "created_at": "2024-05-01T10:00:00Z",
+      "updated_at": "2024-05-01T10:00:00Z"
+    }
+  },
+  {
+    "model": "meetbot.networkingprofile",
+    "pk": 14,
+    "fields": {
+      "participant": 19,
+      "event": 3,
+      "role": "QA",
+      "company": "DemoCorp",
+      "stack": "Python",
+      "interests": "Общение",
+      "goals": "Проверка",
+      "contact": "@tester_19",
+      "is_active": true,
+      "created_at": "2024-05-01T10:00:00Z",
+      "updated_at": "2024-05-01T10:00:00Z"
+    }
   }
 ]

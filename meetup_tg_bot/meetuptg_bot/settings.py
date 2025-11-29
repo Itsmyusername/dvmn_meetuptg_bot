@@ -17,6 +17,9 @@ DEBUG = env.bool('DEBUG', False)
 ALLOWED_HOSTS = env.list('ALLOWED_HOSTS', ['127.0.0.1', 'localhost'])
 TELEGRAM_BOT_TOKEN = env.str('TELEGRAM_BOT_TOKEN', default='')
 LOG_LEVEL = env.str('LOG_LEVEL', default='INFO')
+YOOKASSA_SHOP_ID = env.str('YOOKASSA_SHOP_ID', default='')
+YOOKASSA_SECRET_KEY = env.str('YOOKASSA_SECRET_KEY', default='')
+YOOKASSA_RETURN_URL = env.str('YOOKASSA_RETURN_URL', default='https://t.me')
 
 
 # Application definition

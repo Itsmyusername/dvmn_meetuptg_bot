@@ -25,6 +25,8 @@
 - **`TELEGRAM_BOT_TOKEN`** — токен Telegram-бота, полученный от @BotFather.  
   Используется для запуска и авторизации бота в API Telegram.  
   [Документация Telegram](https://core.telegram.org/bots/faq#how-do-i-create-a-bot)
+- **`YOOKASSA_SHOP_ID` / `YOOKASSA_SECRET_KEY`** — учётные данные ЮKassa для приёма донатов через бота.  
+  **`YOOKASSA_RETURN_URL`** — куда возвращать пользователя после оплаты (например, `https://t.me/yourbot`).  
 
 
 # Запустить сайт для локальной разработки

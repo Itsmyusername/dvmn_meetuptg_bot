@@ -23,6 +23,10 @@ from .constants import (
     CB_QUESTION,
     CB_SPEAKER_MENU,
     CB_SUBSCRIBE,
+    CB_SUBSCRIBE_EVENT,
+    CB_SUBSCRIBE_FUTURE,
+    CB_DONATE_PAY_PREFIX,
+    CB_DONATE_STATUS_PREFIX,
     CB_TALK_FINISH_PREFIX,
     CB_TALK_START_PREFIX,
     CB_MATCH_ACCEPT,
@@ -65,12 +69,15 @@ def build_application(token: str) -> Application:
         networking_stack,
         networking_start,
         networking_stop,
+        subscribe_toggle_event,
+        subscribe_toggle_future,
+        donate_pay_callback,
+        donate_status,
         organizer_menu,
         program,
         start,
         speaker_menu,
-        subscribe_choice,
-        subscribe_start,
+        subscribe,
         talk_finish,
         talk_start,
         announce_start,
@@ -95,6 +102,10 @@ def build_application(token: str) -> Application:
     )
     application.add_handler(CallbackQueryHandler(talk_start, pattern=f'^{CB_TALK_START_PREFIX}\\d+$'), group=0)
     application.add_handler(CallbackQueryHandler(talk_finish, pattern=f'^{CB_TALK_FINISH_PREFIX}\\d+$'), group=0)
+    application.add_handler(CallbackQueryHandler(donate_pay_callback, pattern=f'^{CB_DONATE_PAY_PREFIX}\\d+$'), group=0)
+    application.add_handler(CallbackQueryHandler(donate_status, pattern=f'^{CB_DONATE_STATUS_PREFIX}\\d+$'), group=0)
+    application.add_handler(CallbackQueryHandler(subscribe_toggle_event, pattern=f'^{CB_SUBSCRIBE_EVENT}$'), group=0)
+    application.add_handler(CallbackQueryHandler(subscribe_toggle_future, pattern=f'^{CB_SUBSCRIBE_FUTURE}$'), group=0)
 
     ask_conv = ConversationHandler(
         entry_points=[
@@ -140,31 +151,21 @@ def build_application(token: str) -> Application:
         allow_reentry=True,
     )
 
-    donate_conv = ConversationHandler(
-        entry_points=[CommandHandler(CMD_DONATE, donate_start)],
-        states={
-            BotState.DONATE_AMOUNT: [MessageHandler(filters.TEXT & ~filters.COMMAND, donate_amount)],
-        },
-        fallbacks=[CommandHandler(CMD_CANCEL, cancel)],
-        allow_reentry=True,
-    )
-
-    subscribe_conv = ConversationHandler(
-        entry_points=[CommandHandler(CMD_SUBSCRIBE, subscribe_start)],
-        states={
-            BotState.SUBSCRIBE_CHOICE: [MessageHandler(filters.TEXT & ~filters.COMMAND, subscribe_choice)],
-        },
-        fallbacks=[CommandHandler(CMD_CANCEL, cancel)],
-        allow_reentry=True,
-    )
-
     application.add_handler(ask_conv, group=1)
     application.add_handler(networking_conv, group=1)
-    application.add_handler(donate_conv, group=1)
-    application.add_handler(subscribe_conv, group=1)
+    application.add_handler(
+        ConversationHandler(
+            entry_points=[CommandHandler(CMD_DONATE, donate_start)],
+            states={BotState.DONATE_AMOUNT: [MessageHandler(filters.TEXT & ~filters.COMMAND, donate_amount)]},
+            fallbacks=[CommandHandler(CMD_CANCEL, cancel)],
+            allow_reentry=True,
+        ),
+        group=1,
+    )
+    application.add_handler(CommandHandler(CMD_SUBSCRIBE, subscribe), group=1)
     application.add_handler(announce_conv, group=1)
 
-    # неизвестные команды
+    # фикс неизвестные команды
     application.add_handler(MessageHandler(filters.COMMAND, unknown_command))
     return application
 

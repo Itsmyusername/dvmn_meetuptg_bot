@@ -13,6 +13,10 @@ from meetbot.models import (
     QuestionStatus,
     Talk,
     TalkStatus,
+    DonationStatus,
+    Donation,
+    Subscription,
+    SubscriptionType,
 )
 from meetbot.services.networking import (
     count_profiles_for_event,
@@ -22,6 +26,7 @@ from meetbot.services.networking import (
     get_waiting_profile,
     mark_match_status,
 )
+from meetbot.services.donations import create_donation, create_yookassa_payment, refresh_payment_status
 from meetbot.services.talks import create_question, finish_talk, get_current_talk, get_next_talk, start_talk
 
 from .constants import (
@@ -34,6 +39,8 @@ from .constants import (
     CB_QUESTION,
     CB_SPEAKER_MENU,
     CB_ORGANIZER_MENU,
+    CB_DONATE_PAY_PREFIX,
+    CB_DONATE_STATUS_PREFIX,
     CB_TALK_FINISH_PREFIX,
     CB_TALK_START_PREFIX,
     CB_TALK_SELECT_PREFIX,
@@ -41,6 +48,8 @@ from .constants import (
     CB_MATCH_SKIP,
     CB_MATCH_STOP,
     CB_SUBSCRIBE,
+    CB_SUBSCRIBE_EVENT,
+    CB_SUBSCRIBE_FUTURE,
     CMD_ASK,
     CMD_CANCEL,
     CMD_HEALTH,
@@ -66,7 +75,7 @@ def _menu_keyboard(participant: Participant | None = None) -> InlineKeyboardMark
         ],
         [
             InlineKeyboardButton('🤝 Познакомиться', callback_data=CB_NETWORKING),
-            InlineKeyboardButton('🍕 Донат', callback_data=CB_DONATE),
+            InlineKeyboardButton('💸 Донат', callback_data=CB_DONATE),
         ],
         [InlineKeyboardButton('🔔 Подписка', callback_data=CB_SUBSCRIBE)],
     ]
@@ -163,7 +172,12 @@ async def networking(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
         'Контакт видит только человек, которого вы выбрали.'
     )
 
-    buttons = [[InlineKeyboardButton('Заполнить анкету', callback_data=CB_NETWORK_START)]]
+    buttons = [
+        [
+            InlineKeyboardButton('Заполнить анкету', callback_data=CB_NETWORK_START),
+            InlineKeyboardButton('Отмена', callback_data=CB_MAIN_MENU),
+        ]
+    ]
     if has_profile:
         buttons = [
             [
@@ -190,13 +204,64 @@ async def networking(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
 
 
 async def donate(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    await _ensure_participant_async(update)
-    await _reply(update, 'Добавим кнопку доната и покажем, как поддержать митап.', show_menu=True)
+    participant = await _ensure_participant_async(update)
+    event = await _get_active_event_async()
+    if not event:
+        await _reply(update, 'Нет активного события. Донаты включим, когда стартует митап.', show_menu=True, participant=participant)
+        return
+
+    buttons = [
+        [
+            InlineKeyboardButton('100 ₽', callback_data=f'{CB_DONATE_PAY_PREFIX}100'),
+            InlineKeyboardButton('300 ₽', callback_data=f'{CB_DONATE_PAY_PREFIX}300'),
+            InlineKeyboardButton('500 ₽', callback_data=f'{CB_DONATE_PAY_PREFIX}500'),
+        ],
+        [InlineKeyboardButton('Отмена', callback_data=CB_MAIN_MENU)],
+    ]
+    text = (
+        'Поддержите митап донатом. Выберите сумму или введите свою командой /donate (число).\n'
+        'Оплата через ЮKassa, ссылку отправлю в ответ.'
+    )
+    await _send_with_markup(update, text, InlineKeyboardMarkup(buttons))
 
 
 async def subscribe(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    await _ensure_participant_async(update)
-    await _reply(update, 'Настроим подписку на обновления и будущие события.', show_menu=True)
+    participant = await _ensure_participant_async(update)
+    event = await _get_active_event_async()
+    if not participant:
+        await _reply(update, 'Не удалось определить пользователя.', show_menu=True)
+        return
+
+    event_sub_active = False
+    if event:
+        event_sub_active = await _has_subscription_async(participant, event, SubscriptionType.EVENT)
+    future_sub_active = await _has_subscription_async(participant, None, SubscriptionType.FUTURE)
+
+    buttons = []
+    if event:
+        buttons.append(
+            [
+                InlineKeyboardButton(
+                    f"{'✅' if event_sub_active else '➕'} Обновления текущего события",
+                    callback_data=CB_SUBSCRIBE_EVENT,
+                )
+            ]
+        )
+    buttons.append(
+        [
+            InlineKeyboardButton(
+                f"{'✅' if future_sub_active else '➕'} Уведомлять о следующих митапах",
+                callback_data=CB_SUBSCRIBE_FUTURE,
+            )
+        ]
+    )
+    buttons.append([InlineKeyboardButton('Главное меню', callback_data=CB_MAIN_MENU)])
+
+    text_parts = ['Подписки:']
+    if event:
+        text_parts.append(f"Текущее событие: {event.name}")
+    text_parts.append('Нажмите на пункт, чтобы включить/выключить подписку.')
+    await _send_with_markup(update, '\n'.join(text_parts), InlineKeyboardMarkup(buttons))
 
 
 async def health(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -212,7 +277,6 @@ async def handle_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYP
 
     callbacks = {
         CB_PROGRAM: program,
-        CB_QUESTION: ask,
         CB_MAIN_MENU: start,
         CB_NETWORKING: networking,
         CB_SPEAKER_MENU: speaker_menu,
@@ -261,7 +325,7 @@ async def ask_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
             update,
             (
                 f"Доклад:\n{talk.title}\n{speaker_text}\n\n"
-                "Напишите ваш вопрос, я передам спикеру. /cancel для отмены."
+                "Напишите ваш вопрос, я передам спикеру."
             ),
             show_menu=False,
             participant=participant,
@@ -273,14 +337,13 @@ async def ask_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         context.user_data['current_talk_id'] = talk.id
         speaker = talk.speaker or None
         speaker_text = f"Докладчик: {speaker}" if speaker else 'Докладчик: уточняется'
-        await _reply(
+        await _send_with_markup(
             update,
             (
                 f"Сейчас идёт доклад:\n{talk.title}\n{speaker_text}\n\n"
-                "Напишите ваш вопрос, я передам спикеру. /cancel для отмены."
+                "Напишите ваш вопрос, я передам спикеру."
             ),
-            show_menu=False,
-            participant=participant,
+            InlineKeyboardMarkup([[InlineKeyboardButton('Отмена', callback_data=CB_MAIN_MENU)]]),
         )
         return BotState.ASK_TEXT
 
@@ -424,15 +487,48 @@ async def networking_contact(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
 
 async def donate_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    await _reply(update, 'Введите сумму доната в рублях. /cancel для отмены.')
+    participant = await _ensure_participant_async(update)
+    event = await _get_active_event_async()
+    if not event:
+        await _reply(update, 'Нет активного события. Донаты включим позже.', show_menu=True, participant=participant)
+        return ConversationHandler.END
+    await _reply(update, 'Введите сумму доната в рублях. /cancel для отмены.', show_menu=False)
     return BotState.DONATE_AMOUNT
 
 
 async def donate_amount(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    amount_text = update.message.text.strip()
-    context.user_data['donate_amount'] = amount_text
+    amount_text = (update.message.text or '').strip()
+    participant = await _ensure_participant_async(update)
+    event = await _get_active_event_async()
+    if not event:
+        await _reply(update, 'Нет активного события. Донаты включим позже.', show_menu=True, participant=participant)
+        return ConversationHandler.END
+
+    try:
+        amount = float(amount_text.replace(',', '.'))
+    except ValueError:
+        await update.message.reply_text('Нужна сумма числом, например 200 или 350. Попробуйте ещё раз.')
+        return BotState.DONATE_AMOUNT
+
+    if amount < 50:
+        await update.message.reply_text('Минимальная сумма 50 ₽. Введите больше.')
+        return BotState.DONATE_AMOUNT
+
+    donation = await _create_donation_async(
+        participant=participant,
+        event=event,
+        amount=amount,
+        description=f'Поддержка митапа {event.name}',
+    )
+    donation = await _create_yookassa_payment_async(donation)
+    if not donation.confirmation_url:
+        await update.message.reply_text('Не смогли создать оплату. Попробуйте позже.')
+        return ConversationHandler.END
+
     await update.message.reply_text(
-        f'Готовим ссылку на оплату на {amount_text} RUB (заглушка). Спасибо за поддержку!'
+        f'Ссылка на оплату {donation.amount} ₽: {donation.confirmation_url}\n'
+        'После оплаты нажмите “Проверить статус”. Спасибо за поддержку!',
+        reply_markup=_donation_markup(donation),
     )
     return ConversationHandler.END
 
@@ -491,6 +587,79 @@ async def networking_stop(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     await _send_search_menu(update, 'Хорошо, остановил подбор. Вернуться в меню или попробовать ещё позже?')
     context.user_data.pop('current_match_id', None)
     return ConversationHandler.END
+
+
+async def subscribe_toggle_event(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    participant = await _ensure_participant_async(update)
+    event = await _get_active_event_async()
+    if not (participant and event):
+        await _reply(update, 'Нет активного события.', show_menu=True, participant=participant)
+        return
+    toggled = await _toggle_subscription_async(participant, event, SubscriptionType.EVENT)
+    msg = 'Подписка на обновления текущего события включена.' if toggled else 'Подписка на обновления текущего события выключена.'
+    await _reply(update, msg, show_menu=True, participant=participant)
+
+
+async def subscribe_toggle_future(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    participant = await _ensure_participant_async(update)
+    if not participant:
+        await _reply(update, 'Не удалось определить пользователя.', show_menu=True)
+        return
+    toggled = await _toggle_subscription_async(participant, None, SubscriptionType.FUTURE)
+    msg = 'Подписка на будущие митапы включена.' if toggled else 'Подписка на будущие митапы выключена.'
+    await _reply(update, msg, show_menu=True, participant=participant)
+
+
+async def donate_pay_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    participant = await _ensure_participant_async(update)
+    event = await _get_active_event_async()
+    if not event:
+        await _reply(update, 'Нет активного события. Донаты включим позже.', show_menu=True, participant=participant)
+        return
+    amount = _parse_amount_from_callback(update, CB_DONATE_PAY_PREFIX)
+    if not amount:
+        await _reply(update, 'Не удалось понять сумму. Попробуйте снова.', show_menu=True, participant=participant)
+        return
+    donation = await _create_donation_async(
+        participant=participant,
+        event=event,
+        amount=amount,
+        description=f'Поддержка митапа {event.name}',
+    )
+    donation = await _create_yookassa_payment_async(donation)
+    if not donation.confirmation_url:
+        await _reply(update, 'Не смогли создать оплату. Попробуйте позже.', show_menu=True, participant=participant)
+        return
+    text = (
+        f'Ссылка на оплату {donation.amount} ₽: {donation.confirmation_url}\n'
+        'После оплаты нажмите “Проверить статус”. Спасибо!'
+    )
+    await _send_with_markup(update, text, _donation_markup(donation))
+
+
+async def donate_status(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    donation_id = _parse_id_from_callback(update, CB_DONATE_STATUS_PREFIX)
+    participant = await _ensure_participant_async(update)
+    if not donation_id:
+        await _reply(update, 'Платёж не найден.', show_menu=True, participant=participant)
+        return
+    donation = await _get_donation_by_id_async(donation_id)
+    if not donation:
+        await _reply(update, 'Платёж не найден.', show_menu=True, participant=participant)
+        return
+    donation = await _refresh_payment_async(donation)
+    status_text = {
+        DonationStatus.PENDING: 'Ожидает оплаты',
+        DonationStatus.WAITING_FOR_CAPTURE: 'Ожидает подтверждения',
+        DonationStatus.SUCCEEDED: 'Оплата прошла, спасибо!',
+        DonationStatus.FAILED: 'Неуспешно',
+        DonationStatus.CANCELED: 'Отменено',
+    }.get(donation.status, donation.status)
+    await _send_with_markup(
+        update,
+        f'Статус платежа: {status_text}\nСумма: {donation.amount} ₽',
+        _donation_markup(donation),
+    )
 
 
 async def speaker_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -986,6 +1155,13 @@ def _parse_id_from_callback(update: Update, prefix: str) -> int | None:
         return None
 
 
+def _parse_amount_from_callback(update: Update, prefix: str) -> float | None:
+    value = _parse_id_from_callback(update, prefix)
+    if value is None:
+        return None
+    return float(value)
+
+
 async def _send_with_markup(update: Update, text: str, reply_markup) -> None:
     if update.message:
         await update.message.reply_text(text, reply_markup=reply_markup)
@@ -995,3 +1171,67 @@ async def _send_with_markup(update: Update, text: str, reply_markup) -> None:
             await update.callback_query.edit_message_text(text, reply_markup=reply_markup)
         except Exception:
             await update.callback_query.message.reply_text(text, reply_markup=reply_markup)
+
+
+async def _create_donation_async(participant, event, amount, description):
+    from decimal import Decimal
+
+    return await sync_to_async(create_donation, thread_sensitive=True)(
+        participant=participant,
+        event=event,
+        amount=Decimal(str(amount)),
+        description=description,
+    )
+
+
+async def _create_yookassa_payment_async(donation):
+    return await sync_to_async(create_yookassa_payment, thread_sensitive=True)(donation)
+
+
+async def _get_donation_by_id_async(donation_id: int):
+    return await sync_to_async(
+        lambda: Donation.objects.filter(id=donation_id).select_related('participant', 'event').first(),
+        thread_sensitive=True,
+    )()
+
+
+async def _refresh_payment_async(donation):
+    return await sync_to_async(refresh_payment_status, thread_sensitive=True)(donation)
+
+
+async def _has_subscription_async(participant: Participant, event: Event | None, sub_type: str) -> bool:
+    return await sync_to_async(
+        lambda: Subscription.objects.filter(
+            participant=participant,
+            event=event if sub_type == SubscriptionType.EVENT else None,
+            subscription_type=sub_type,
+            is_active=True,
+        ).exists(),
+        thread_sensitive=True,
+    )()
+
+
+async def _toggle_subscription_async(participant: Participant, event: Event | None, sub_type: str) -> bool:
+    def _toggle():
+        sub, _ = Subscription.objects.get_or_create(
+            participant=participant,
+            event=event if sub_type == SubscriptionType.EVENT else None,
+            subscription_type=sub_type,
+            defaults={'is_active': True},
+        )
+        sub.is_active = not sub.is_active if sub.id else True
+        sub.save(update_fields=['is_active'])
+        return sub.is_active
+
+    return await sync_to_async(_toggle, thread_sensitive=True)()
+
+
+def _donation_markup(donation: Donation) -> InlineKeyboardMarkup:
+    buttons = []
+    if donation.confirmation_url:
+        buttons.append([InlineKeyboardButton('Оплатить', url=donation.confirmation_url)])
+    buttons.append(
+        [InlineKeyboardButton('Проверить статус', callback_data=f'{CB_DONATE_STATUS_PREFIX}{donation.id}')]
+    )
+    buttons.append([InlineKeyboardButton('Главное меню', callback_data=CB_MAIN_MENU)])
+    return InlineKeyboardMarkup(buttons)

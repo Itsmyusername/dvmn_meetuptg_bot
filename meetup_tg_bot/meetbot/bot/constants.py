@@ -14,6 +14,7 @@ CMD_CANCEL = 'cancel'
 CMD_ANNOUNCE = 'announce'
 CMD_SPEAKER = 'speaker'
 CMD_ORGANIZER = 'organizer'
+CMD_DONATIONS = 'donations'
 
 # Callback data для главного меню
 CB_PROGRAM = 'menu_program'
@@ -24,6 +25,10 @@ CB_SUBSCRIBE = 'menu_subscribe'
 CB_MAIN_MENU = 'menu_main'
 CB_SPEAKER_MENU = 'menu_speaker'
 CB_ORGANIZER_MENU = 'menu_organizer'
+CB_SUBSCRIBE_EVENT = 'subscribe_event'
+CB_SUBSCRIBE_FUTURE = 'subscribe_future'
+CB_DONATE_PAY_PREFIX = 'donate_pay_'
+CB_DONATE_STATUS_PREFIX = 'donate_status_'
 CB_NETWORK_START = 'network_start'
 CB_NETWORK_SEARCH = 'network_search'
 CB_MATCH_ACCEPT = 'match_accept'
@@ -44,3 +49,4 @@ class BotState(IntEnum):
     DONATE_AMOUNT = 8
     SUBSCRIBE_CHOICE = 9
     ANNOUNCE_TEXT = 10
+    DONATE_CONFIRM = 11
