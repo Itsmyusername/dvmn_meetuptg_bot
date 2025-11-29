@@ -1,4 +1,6 @@
 from django.contrib import admin
+from django.core.exceptions import ValidationError
+from django.forms import BaseInlineFormSet
 
 from .models import (
     Donation,
@@ -35,6 +37,36 @@ class PlaceAdmin(admin.ModelAdmin):
     search_fields = ('name', 'address')
 
 
+class TalkInlineFormSet(BaseInlineFormSet):
+    def clean(self):
+        super().clean()
+
+        for form in self.forms:
+            if form.cleaned_data.get('DELETE'):
+                continue
+
+            talk = form.instance
+            event = form.cleaned_data.get('event') or talk.event
+            start = form.cleaned_data.get('start_at')
+            end = form.cleaned_data.get('end_at')
+
+            if not (event and start and end):
+                continue
+
+            if start < event.start_at or end > event.end_at:
+                raise ValidationError(
+                    f"Доклад должен быть в пределах события: "
+                    f"{event.start_at} — {event.end_at}"
+                )
+
+
+class TalkInline(admin.TabularInline):
+    model = Talk
+    formset = TalkInlineFormSet
+    extra = 0
+    ordering = ('start_at',)
+
+
 @admin.register(Event)
 class EventAdmin(admin.ModelAdmin):
     list_display = (
@@ -50,6 +82,8 @@ class EventAdmin(admin.ModelAdmin):
     search_fields = ('name',)
     readonly_fields = ('created_at', 'updated_at')
 
+    inlines = [TalkInline]
+
 
 @admin.register(Talk)
 class TalkAdmin(admin.ModelAdmin):
@@ -63,7 +97,12 @@ class TalkAdmin(admin.ModelAdmin):
         'is_current',
     )
     list_filter = ('status', 'is_current', 'event')
-    search_fields = ('title', 'speaker__first_name', 'speaker__last_name', 'speaker__tg_username')
+    search_fields = (
+        'title',
+        'speaker__first_name',
+        'speaker__last_name',
+        'speaker__tg_username',
+    )
     ordering = ('event', 'order', 'start_at')
     readonly_fields = ('created_at', 'updated_at')
 
@@ -72,7 +111,12 @@ class TalkAdmin(admin.ModelAdmin):
 class QuestionAdmin(admin.ModelAdmin):
     list_display = ('id', 'talk', 'author', 'status', 'asked_at')
     list_filter = ('status', 'talk__event')
-    search_fields = ('text', 'author__first_name', 'author__last_name', 'author__tg_username')
+    search_fields = (
+        'text',
+        'author__first_name',
+        'author__last_name',
+        'author__tg_username',
+    )
     readonly_fields = ('asked_at', 'answered_at')
     ordering = ('-asked_at',)
 

@@ -1,5 +1,6 @@
 import logging
 
+from django.utils import timezone
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import ContextTypes, ConversationHandler
 
@@ -28,6 +29,7 @@ from meetbot.services.networking import (
 )
 from meetbot.services.donations import create_donation, create_yookassa_payment, refresh_payment_status
 from meetbot.services.talks import create_question, finish_talk, get_current_talk, get_next_talk, start_talk
+from meetbot.services.program import get_program_text
 
 from .constants import (
     CB_MAIN_MENU,
@@ -110,44 +112,15 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
 async def program(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     participant = await _ensure_participant_async(update)
-    event = await _get_active_event_async()
-    if not event:
-        await _reply(
-            update,
-            'Сейчас нет активного события. Следите за обновлениями.',
-            show_menu=True,
-            participant=participant,
-        )
-        return
 
-    current_talk = await _get_current_talk_async(event)
-    next_talk = await _get_next_talk_async(event)
+    text = await get_program_text()
 
-    parts = []
-    if current_talk:
-        parts.append(
-            (
-                "Сейчас идёт:\n"
-                f"{current_talk.title}\n"
-                f"Докладчик: {current_talk.speaker or 'уточняется'}\n"
-                f"Время: {current_talk.start_at:%H:%M}–{current_talk.end_at:%H:%M}"
-            )
-        )
-    else:
-        parts.append('Сейчас доклад не идёт.')
-
-    if next_talk:
-        parts.append(
-            (
-                "Дальше по программе:\n"
-                f"{next_talk.title}\n"
-                f"Докладчик: {next_talk.speaker or 'уточняется'}\n"
-                f"Начало: {next_talk.start_at:%H:%M}"
-            )
-        )
-
-    parts.append('Нужен другой спикер? Организатор или докладчик могут отметить текущий доклад вручную.')
-    await _reply(update, '\n\n'.join(parts), show_menu=True, participant=participant)
+    await _reply(
+        update,
+        text,
+        show_menu=True,
+        participant=participant,
+    )
 
 
 async def ask(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -402,7 +375,6 @@ async def ask_save(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
 
 
 async def networking_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    
     if update.callback_query and update.callback_query.data == CB_NETWORK_SEARCH:
         participant = await _ensure_participant_async(update)
         event = await _get_active_event_async()
@@ -555,7 +527,8 @@ async def networking_accept(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         await _reply(update, 'Нет активного предложения. /start', show_menu=True)
         return ConversationHandler.END
     await _mark_match_status_async(match, NetworkingMatchStatus.ACCEPTED)
-    await _reply(update, f'Свяжитесь с {match.target_profile.contact or "контактом"}. Удачного общения!', show_menu=True)
+    await _reply(update, f'Свяжитесь с {match.target_profile.contact or "контактом"}. Удачного общения!',
+                 show_menu=True)
     context.user_data.pop('current_match_id', None)
     return ConversationHandler.END
 
@@ -665,15 +638,20 @@ async def donate_status(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
 async def speaker_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     participant = await _ensure_participant_async(update)
     if not participant or not participant.is_speaker:
-        await _reply(update, 'Панель докладчика доступна только назначенным спикерам.', show_menu=True, participant=participant)
+        await _reply(update, 'Панель докладчика доступна только назначенным спикерам.', show_menu=True,
+                     participant=participant)
         return
 
     event = await _get_active_event_async()
     if not event:
-        await _reply(update, 'Нет активного мероприятия. Как только начнётся — напомню.', show_menu=True, participant=participant)
+        await _reply(update, 'Нет активного мероприятия. Как только начнётся — напомню.', show_menu=True,
+                     participant=participant)
         return
 
     talks = await _list_speaker_talks_async(participant, event)
+
+
+
     if not talks:
         await _reply(
             update,
@@ -683,10 +661,16 @@ async def speaker_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         )
         return
 
+    tz = timezone.get_current_timezone()
+
     current_talk = await _get_current_talk_async(event)
     lines = ['Ваши доклады на событие:']
     buttons = []
     for talk in talks:
+        talk_start_local = talk.start_at.astimezone(tz)
+        talk_end_at = talk.end_at.astimezone(tz)
+
+
         pending = await _count_pending_questions_async(talk)
         status_emoji = {
             TalkStatus.IN_PROGRESS: '▶️',
@@ -694,7 +678,7 @@ async def speaker_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
             TalkStatus.CANCELLED: '🚫',
         }.get(talk.status, '⏳')
         line = (
-            f"{status_emoji} {talk.start_at:%H:%M}-{talk.end_at:%H:%M} {talk.title} "
+            f"{status_emoji} {talk_start_local.strftime('%H:%M')}-{talk_end_at.strftime('%H:%M')} {talk.title} "
             f"(вопросов в очереди: {pending})"
         )
         lines.append(line)
@@ -724,12 +708,14 @@ async def speaker_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
 async def organizer_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     participant = await _ensure_participant_async(update)
     if not participant or not participant.is_organizer:
-        await _reply(update, 'Панель организатора доступна только организаторам.', show_menu=True, participant=participant)
+        await _reply(update, 'Панель организатора доступна только организаторам.', show_menu=True,
+                     participant=participant)
         return
 
     event = await _get_active_event_async()
     if not event:
-        await _reply(update, 'Нет активного мероприятия. Создайте и активируйте событие в админке.', show_menu=True, participant=participant)
+        await _reply(update, 'Нет активного мероприятия. Создайте и активируйте событие в админке.', show_menu=True,
+                     participant=participant)
         return
 
     talks = await _list_event_talks_async(event)
@@ -787,8 +773,10 @@ async def talk_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
         await _reply(update, 'Доклад не найден.', show_menu=True, participant=participant)
         return
 
-    if not participant or not (participant.is_organizer or (participant.is_speaker and talk.speaker_id == participant.id)):
-        await _reply(update, 'Только организатор или назначенный спикер могут менять статус доклада.', show_menu=True, participant=participant)
+    if not participant or not (
+            participant.is_organizer or (participant.is_speaker and talk.speaker_id == participant.id)):
+        await _reply(update, 'Только организатор или назначенный спикер могут менять статус доклада.', show_menu=True,
+                     participant=participant)
         return
 
     await _start_talk_async(talk)
@@ -815,8 +803,10 @@ async def talk_finish(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         await _reply(update, 'Доклад не найден.', show_menu=True, participant=participant)
         return
 
-    if not participant or not (participant.is_organizer or (participant.is_speaker and talk.speaker_id == participant.id)):
-        await _reply(update, 'Только организатор или назначенный спикер могут завершать доклад.', show_menu=True, participant=participant)
+    if not participant or not (
+            participant.is_organizer or (participant.is_speaker and talk.speaker_id == participant.id)):
+        await _reply(update, 'Только организатор или назначенный спикер могут завершать доклад.', show_menu=True,
+                     participant=participant)
         return
 
     await _finish_talk_async(talk)
@@ -926,7 +916,8 @@ async def _attach_speaker_flag_async(participant: Participant | None, event: Eve
 
 
 async def _get_active_event_async() -> Event | None:
-    return await sync_to_async(lambda: Event.objects.filter(is_active=True).order_by('-start_at').first(), thread_sensitive=True)()
+    return await sync_to_async(lambda: Event.objects.filter(is_active=True).order_by('-start_at').first(),
+                               thread_sensitive=True)()
 
 
 async def _get_profile_async(participant: Participant, event: Event) -> NetworkingProfile | None:
@@ -1058,7 +1049,8 @@ async def _start_matching(profile: NetworkingProfile, update: Update, context: C
 
 
 async def _get_talk_by_id_async(talk_id: int) -> Talk | None:
-    return await sync_to_async(lambda: Talk.objects.select_related('speaker').filter(id=talk_id).first(), thread_sensitive=True)()
+    return await sync_to_async(lambda: Talk.objects.select_related('speaker').filter(id=talk_id).first(),
+                               thread_sensitive=True)()
 
 
 async def _create_question_async(**kwargs):
@@ -1094,7 +1086,8 @@ async def _notify_speaker_async(question, bot) -> bool:
 
 
 async def _list_event_talks_async(event: Event):
-    return await sync_to_async(lambda: list(event.talks.select_related('speaker').order_by('start_at')), thread_sensitive=True)()
+    return await sync_to_async(lambda: list(event.talks.select_related('speaker').order_by('start_at')),
+                               thread_sensitive=True)()
 
 
 async def _set_question_status_async(question, status: str) -> None:
