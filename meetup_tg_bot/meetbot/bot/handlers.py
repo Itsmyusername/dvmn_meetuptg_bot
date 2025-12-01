@@ -702,6 +702,7 @@ async def speaker_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
                 buttons.append(
                     [InlineKeyboardButton('▶️ Сделать текущим', callback_data=f'{CB_TALK_START_PREFIX}{talk.id}')]
                 )
+    buttons.append([InlineKeyboardButton('❓ Вопросы к текущему', callback_data=ORG_SHOW_QUESTIONS)])
     buttons.append([InlineKeyboardButton('Главное меню', callback_data=CB_MAIN_MENU)])
     buttons.append([InlineKeyboardButton('Программа', callback_data=CB_PROGRAM)])
     buttons.append([InlineKeyboardButton('Задать вопрос', callback_data=CB_QUESTION)])
@@ -716,9 +717,8 @@ async def speaker_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
 
 async def organizer_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     participant = await _ensure_participant_async(update)
-    if not participant or not participant.is_organizer:
-        await _reply(update, 'Панель организатора доступна только организаторам.', show_menu=True,
-                     participant=participant)
+    if not participant or not (participant.is_organizer or participant.is_speaker):
+        await _reply(update, "Доступ только для организаторов и спикеров.", show_menu=True, participant=participant)
         return
 
     event = await _get_active_event_async()
@@ -880,8 +880,8 @@ async def announce_send(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
 
 async def organizer_show_questions(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     participant = await _ensure_participant_async(update)
-    if not participant or not participant.is_organizer:
-        await _reply(update, 'Доступ только для организаторов.', show_menu=True, participant=participant)
+    if not participant or not (participant.is_organizer or participant.is_speaker):
+        await _reply(update, "Доступ только для организаторов и спикеров.", show_menu=True, participant=participant)
         return
 
     event = await _get_active_event_async()
@@ -1179,14 +1179,11 @@ async def _set_question_status_async(question, status: str) -> None:
 #     )()
 
 # Не отвеченные
-async def _count_pending_count_async(talk: Talk) -> int:
+async def _count_pending_questions_async(talk: Talk) -> int:
     return await sync_to_async(
-        lambda: talk.questions.filter(
-            status__in=[QuestionStatus.PENDING, QuestionStatus.SENT_TO_SPEAKER]
-        ).count(),
+        lambda: talk.questions.filter(status=QuestionStatus.PENDING).count(),
         thread_sensitive=True,
     )()
-
 
 
 async def _list_speaker_talks_async(participant: Participant, event: Event):
