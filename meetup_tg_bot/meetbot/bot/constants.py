@@ -15,6 +15,8 @@ CMD_ANNOUNCE = 'announce'
 CMD_SPEAKER = 'speaker'
 CMD_ORGANIZER = 'organizer'
 CMD_DONATIONS = 'donations'
+CMD_SPEAKER_APPLY = 'be_speaker'
+CMD_PROGRAM_NOTIFY = 'program_notify'
 
 # Callback data для главного меню
 CB_PROGRAM = 'menu_program'
@@ -29,6 +31,9 @@ CB_SUBSCRIBE_EVENT = 'subscribe_event'
 CB_SUBSCRIBE_FUTURE = 'subscribe_future'
 CB_DONATE_PAY_PREFIX = 'donate_pay_'
 CB_DONATE_STATUS_PREFIX = 'donate_status_'
+CB_DONATIONS = 'donations'
+CB_SPEAKER_APPLY = 'speaker_apply'
+CB_PROGRAM_NOTIFY = 'menu_program_notify'
 CB_NETWORK_START = 'network_start'
 CB_NETWORK_SEARCH = 'network_search'
 CB_MATCH_ACCEPT = 'match_accept'
@@ -50,3 +55,5 @@ class BotState(IntEnum):
     SUBSCRIBE_CHOICE = 9
     ANNOUNCE_TEXT = 10
     DONATE_CONFIRM = 11
+    SPEAKER_APPLY_TOPIC = 12
+    SPEAKER_APPLY_CONTACT = 13
