@@ -59,6 +59,7 @@ from .constants import (
     CMD_PROGRAM,
     CMD_START,
     BotState,
+    ORG_SHOW_QUESTIONS,
 )
 
 logger = logging.getLogger(__name__)
@@ -320,6 +321,10 @@ async def ask_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         )
         return BotState.ASK_TEXT
 
+    if talk is None:
+        await _reply(update, 'Нет активного доклада. Попробуйте позже.', show_menu=True, participant=participant)
+        return ConversationHandler.END
+
     talks = await _list_event_talks_async(event)
     if not talks:
         await _reply(
@@ -370,7 +375,17 @@ async def ask_save(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     delivered = await _notify_speaker_async(question, context.application.bot)
     if delivered:
         await _set_question_status_async(question, QuestionStatus.SENT_TO_SPEAKER)
-    await update.message.reply_text('Спасибо! Вопрос передал спикеру. /start')
+
+    buttons = [
+        [InlineKeyboardButton('Задать ещё вопрос', callback_data=CB_QUESTION)],
+        [InlineKeyboardButton('Главное меню', callback_data=CB_MAIN_MENU)],
+    ]
+    markup = InlineKeyboardMarkup(buttons)
+
+    await update.message.reply_text(
+        'Спасибо! Вопрос передал спикеру.',
+        reply_markup=markup
+    )
     return ConversationHandler.END
 
 
@@ -650,8 +665,6 @@ async def speaker_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
 
     talks = await _list_speaker_talks_async(participant, event)
 
-
-
     if not talks:
         await _reply(
             update,
@@ -667,10 +680,6 @@ async def speaker_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     lines = ['Ваши доклады на событие:']
     buttons = []
     for talk in talks:
-        talk_start_local = talk.start_at.astimezone(tz)
-        talk_end_at = talk.end_at.astimezone(tz)
-
-
         pending = await _count_pending_questions_async(talk)
         status_emoji = {
             TalkStatus.IN_PROGRESS: '▶️',
@@ -678,7 +687,7 @@ async def speaker_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
             TalkStatus.CANCELLED: '🚫',
         }.get(talk.status, '⏳')
         line = (
-            f"{status_emoji} {talk_start_local.strftime('%H:%M')}-{talk_end_at.strftime('%H:%M')} {talk.title} "
+            f"{status_emoji} {format_local(talk.start_at)}-{format_local(talk.end_at)} {talk.title} "
             f"(вопросов в очереди: {pending})"
         )
         lines.append(line)
@@ -720,7 +729,10 @@ async def organizer_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
     talks = await _list_event_talks_async(event)
     current_talk = await _get_current_talk_async(event)
-    header = f'Активное событие: {event.name}\n{event.start_at:%d.%m %H:%M}–{event.end_at:%H:%M}'
+    header = (
+        f'Активное событие: {event.name}\n'
+        f'{event.start_at:%d.%m.%y} {format_local(event.start_at)}–{format_local(event.end_at)}'
+    )
     if not talks:
         await _reply(
             update,
@@ -736,7 +748,7 @@ async def organizer_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         pending = await _count_pending_questions_async(talk)
         marker = '▶️' if current_talk and talk.id == current_talk.id else '•'
         lines.append(
-            f"{marker} {talk.start_at:%H:%M}-{talk.end_at:%H:%M} {talk.title} "
+            f"{marker} {format_local(talk.start_at)}-{format_local(talk.end_at)} {talk.title} "
             f"({talk.speaker or 'спикер уточняется'}) — вопросов: {pending}"
         )
         if talk.status not in (TalkStatus.DONE, TalkStatus.CANCELLED):
@@ -756,6 +768,7 @@ async def organizer_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
                         )
                     ]
                 )
+    buttons.append([InlineKeyboardButton('❓ Вопросы к текущему', callback_data=ORG_SHOW_QUESTIONS)])
     buttons.append([InlineKeyboardButton('Главное меню', callback_data=CB_MAIN_MENU)])
     await _send_with_markup(
         update,
@@ -763,7 +776,6 @@ async def organizer_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         + '\n\nОтмечайте текущий доклад вручную — так вопросы уйдут правильному спикеру даже при сдвигах по времени.',
         InlineKeyboardMarkup(buttons),
     )
-
 
 async def talk_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     participant = await _ensure_participant_async(update)
@@ -866,6 +878,56 @@ async def announce_send(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
     await update.message.reply_text(f'Рассылка отправлена {sent} участникам.')
     return ConversationHandler.END
 
+async def organizer_show_questions(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    participant = await _ensure_participant_async(update)
+    if not participant or not participant.is_organizer:
+        await _reply(update, 'Доступ только для организаторов.', show_menu=True, participant=participant)
+        return
+
+    event = await _get_active_event_async()
+    if not event:
+        await _reply(update, 'Нет активного события.', show_menu=True, participant=participant)
+        return
+
+    talk = await _get_current_talk_async(event)
+    if not talk:
+        await _reply(update, 'Нет активного доклада.', show_menu=True, participant=participant)
+        return
+
+    questions = await sync_to_async(
+        lambda: list(
+            talk.questions.select_related('author').order_by('asked_at')
+        ),
+        thread_sensitive=True
+    )()
+
+    if not questions:
+        await _reply(update, 'Нет вопросов к текущему докладу.', show_menu=True, participant=participant)
+        return
+
+    lines = [f"Вопросы к докладу:\n*{talk.title}*\n"]
+    for q in questions:
+        author = q.author
+
+        if author and author.tg_username:
+            name = f"@{author.tg_username}"
+        else:
+            # fallback на имя или Аноним
+            name = (
+                (f"{author.first_name or ''} {author.last_name or ''}".strip())
+                if author and (author.first_name or author.last_name)
+                else "Аноним"
+            )
+
+        lines.append(f"• {q.text} — _{name}_")
+
+    await _reply(update, "\n".join(lines), show_menu=True, participant=participant)
+
+def format_local(dt):
+    if not dt:
+        return ""
+    tz = timezone.get_current_timezone()
+    return dt.astimezone(tz).strftime('%H:%M')
 
 async def _reply(update: Update, text: str, show_menu: bool = False, participant: Participant | None = None) -> None:
     """message или callback"""
@@ -877,13 +939,25 @@ async def _reply(update: Update, text: str, show_menu: bool = False, participant
         participant = await _attach_speaker_flag_async(participant, event)
         markup = _menu_keyboard(participant)
     if update.message:
-        await update.message.reply_text(text, reply_markup=markup)
+        await update.message.reply_text(
+            text,
+            reply_markup=markup,
+            parse_mode='Markdown'
+        )
     elif update.callback_query:
         await update.callback_query.answer()
         try:
-            await update.callback_query.edit_message_text(text, reply_markup=markup)
+            await update.callback_query.edit_message_text(
+                text,
+                reply_markup=markup,
+                parse_mode='Markdown'
+            )
         except Exception:
-            await update.callback_query.message.reply_text(text, reply_markup=markup)
+            await update.callback_query.message.reply_text(
+                text,
+                reply_markup=markup,
+                parse_mode='Markdown'
+            )
 
 
 def _ensure_participant(update: Update) -> Participant | None:
@@ -911,7 +985,7 @@ async def _attach_speaker_flag_async(participant: Participant | None, event: Eve
         return participant
     has_talk = await _has_speaker_talk_async(participant, event)
     if has_talk:
-        participant._has_speaker_talk = True  # noqa: SLF001 
+        participant._has_speaker_talk = True  # noqa: SLF001
     return participant
 
 
@@ -1097,12 +1171,22 @@ async def _set_question_status_async(question, status: str) -> None:
 
     await sync_to_async(_set_status, thread_sensitive=True)(question, status)
 
+# Все вопросы
+# async def _count_pending_questions_async(talk: Talk) -> int:
+#     return await sync_to_async(
+#         lambda: talk.questions.count(),
+#         thread_sensitive=True,
+#     )()
 
-async def _count_pending_questions_async(talk: Talk) -> int:
+# Не отвеченные
+async def _count_pending_count_async(talk: Talk) -> int:
     return await sync_to_async(
-        lambda: talk.questions.filter(status=QuestionStatus.PENDING).count(),
+        lambda: talk.questions.filter(
+            status__in=[QuestionStatus.PENDING, QuestionStatus.SENT_TO_SPEAKER]
+        ).count(),
         thread_sensitive=True,
     )()
+
 
 
 async def _list_speaker_talks_async(participant: Participant, event: Event):

@@ -74,6 +74,7 @@ def build_application(token: str) -> Application:
         donate_pay_callback,
         donate_status,
         organizer_menu,
+        organizer_show_questions,
         program,
         start,
         speaker_menu,
@@ -98,6 +99,10 @@ def build_application(token: str) -> Application:
             handle_menu_callback,
             pattern='^menu_(program|question|networking|donate|subscribe|speaker|organizer|main)$',
         ),
+        group=0,
+    )
+    application.add_handler(
+        CallbackQueryHandler(organizer_show_questions, pattern='^org_show_question$'),
         group=0,
     )
     application.add_handler(CallbackQueryHandler(talk_start, pattern=f'^{CB_TALK_START_PREFIX}\\d+$'), group=0)

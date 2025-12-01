@@ -37,6 +37,7 @@ CB_MATCH_STOP = 'match_stop'
 CB_TALK_SELECT_PREFIX = 'talk_select_'
 CB_TALK_START_PREFIX = 'talk_start_'
 CB_TALK_FINISH_PREFIX = 'talk_finish_'
+ORG_SHOW_QUESTIONS = 'org_show_question'
 
 class BotState(IntEnum):
     ASK_TEXT = 1
