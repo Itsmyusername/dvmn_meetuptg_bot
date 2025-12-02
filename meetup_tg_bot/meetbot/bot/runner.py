@@ -25,8 +25,6 @@ from .constants import (
     CB_SUBSCRIBE,
     CB_SUBSCRIBE_EVENT,
     CB_SUBSCRIBE_FUTURE,
-    CB_DONATIONS,
-    CB_SPEAKER_APPLY,
     CB_DONATE_PAY_PREFIX,
     CB_DONATE_STATUS_PREFIX,
     CB_TALK_FINISH_PREFIX,
@@ -37,14 +35,11 @@ from .constants import (
     CMD_ASK,
     CMD_ANNOUNCE,
     CMD_DONATE,
-    CMD_PROGRAM_NOTIFY,
     CMD_HEALTH,
     CMD_NETWORKING,
     CMD_ORGANIZER,
     CMD_PROGRAM,
     CMD_SPEAKER,
-    CMD_DONATIONS,
-    CMD_SPEAKER_APPLY,
     CMD_START,
     CMD_SUBSCRIBE,
     CMD_CANCEL,
@@ -80,14 +75,9 @@ def build_application(token: str) -> Application:
         donate_status,
         organizer_menu,
         organizer_show_questions,
-        donations_report,
         program,
-        program_notify,
         start,
         speaker_menu,
-        speaker_apply_start,
-        speaker_apply_topic,
-        speaker_apply_contact,
         subscribe,
         talk_finish,
         talk_start,
@@ -100,17 +90,14 @@ def build_application(token: str) -> Application:
 
     application.add_handler(CommandHandler(CMD_START, start))
     application.add_handler(CommandHandler(CMD_PROGRAM, program))
-    application.add_handler(CommandHandler(CMD_PROGRAM_NOTIFY, program_notify))
     application.add_handler(CommandHandler(CMD_HEALTH, health))
     application.add_handler(CommandHandler(CMD_SPEAKER, speaker_menu))
     application.add_handler(CommandHandler(CMD_ORGANIZER, organizer_menu))
-    application.add_handler(CommandHandler(CMD_DONATIONS, donations_report))
-    application.add_handler(CommandHandler(CMD_SPEAKER_APPLY, speaker_apply_start))
 
     application.add_handler(
         CallbackQueryHandler(
             handle_menu_callback,
-            pattern='^(program_notify|menu_(program|question|networking|donate|subscribe|speaker|organizer|program_notify|main))$',
+            pattern='^menu_(program|question|networking|donate|subscribe|speaker|organizer|main)$',
         ),
         group=0,
     )
@@ -124,7 +111,6 @@ def build_application(token: str) -> Application:
     application.add_handler(CallbackQueryHandler(donate_status, pattern=f'^{CB_DONATE_STATUS_PREFIX}\\d+$'), group=0)
     application.add_handler(CallbackQueryHandler(subscribe_toggle_event, pattern=f'^{CB_SUBSCRIBE_EVENT}$'), group=0)
     application.add_handler(CallbackQueryHandler(subscribe_toggle_future, pattern=f'^{CB_SUBSCRIBE_FUTURE}$'), group=0)
-    application.add_handler(CallbackQueryHandler(donations_report, pattern=f'^{CB_DONATIONS}$'), group=0)
 
     ask_conv = ConversationHandler(
         entry_points=[
@@ -143,19 +129,6 @@ def build_application(token: str) -> Application:
         entry_points=[CommandHandler(CMD_ANNOUNCE, announce_start)],
         states={
             BotState.ANNOUNCE_TEXT: [MessageHandler(filters.TEXT & ~filters.COMMAND, announce_send)],
-        },
-        fallbacks=[CommandHandler(CMD_CANCEL, cancel)],
-        allow_reentry=True,
-    )
-
-    speaker_apply_conv = ConversationHandler(
-        entry_points=[
-            CommandHandler(CMD_SPEAKER_APPLY, speaker_apply_start),
-            CallbackQueryHandler(speaker_apply_start, pattern=f'^{CB_SPEAKER_APPLY}$'),
-        ],
-        states={
-            BotState.SPEAKER_APPLY_TOPIC: [MessageHandler(filters.TEXT & ~filters.COMMAND, speaker_apply_topic)],
-            BotState.SPEAKER_APPLY_CONTACT: [MessageHandler(filters.TEXT & ~filters.COMMAND, speaker_apply_contact)],
         },
         fallbacks=[CommandHandler(CMD_CANCEL, cancel)],
         allow_reentry=True,
@@ -196,7 +169,6 @@ def build_application(token: str) -> Application:
     )
     application.add_handler(CommandHandler(CMD_SUBSCRIBE, subscribe), group=1)
     application.add_handler(announce_conv, group=1)
-    application.add_handler(speaker_apply_conv, group=1)
 
     # фикс неизвестные команды
     application.add_handler(MessageHandler(filters.COMMAND, unknown_command))

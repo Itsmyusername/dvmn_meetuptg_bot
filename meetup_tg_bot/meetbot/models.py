@@ -1,5 +1,6 @@
 from django.db import models
-
+from django.db.models.signals import post_save
+from django.dispatch import receiver
 
 class Participant(models.Model):
     
@@ -385,3 +386,12 @@ class SpeakerApplication(models.Model):
 
     def __str__(self):
         return f'{self.topic[:30]} ({self.status})'
+
+
+@receiver(post_save, sender=Talk)
+def set_participant_as_speaker(sender, instance, **kwargs):
+    """Автоматически отмечает докладчика при назначении в Talk."""
+    speaker = instance.speaker
+    if speaker and not speaker.is_speaker:
+        speaker.is_speaker = True
+        speaker.save(update_fields=["is_speaker"])

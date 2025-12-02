@@ -30,6 +30,7 @@ from meetbot.services.networking import (
 )
 from meetbot.services.donations import create_donation, create_yookassa_payment, refresh_payment_status
 from meetbot.services.talks import create_question, finish_talk, get_current_talk, get_next_talk, start_talk
+from meetbot.services.program import  get_program_text
 
 from .constants import (
     CB_MAIN_MENU,
@@ -454,9 +455,10 @@ async def ask_save(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         return ConversationHandler.END
 
     question = await _create_question_async(talk=talk, author=participant, text=question_text)
-    delivered = await _notify_speaker_async(question, context.application.bot)
-    if delivered:
-        await _set_question_status_async(question, QuestionStatus.SENT_TO_SPEAKER)
+    # отправка в реальном времени
+    # delivered = await _notify_speaker_async(question, context.application.bot)
+    # if delivered:
+    #     await _set_question_status_async(question, QuestionStatus.SENT_TO_SPEAKER)
 
     buttons = [
         [InlineKeyboardButton('Задать ещё вопрос', callback_data=CB_QUESTION)],
@@ -1058,10 +1060,10 @@ async def organizer_show_questions(update: Update, context: ContextTypes.DEFAULT
                 if author and (author.first_name or author.last_name)
                 else "Аноним"
             )
+        safe_name = name.replace('_', '\\_')
+        lines.append(f"• {q.text} — `{safe_name}`")
 
-        lines.append(f"• {q.text} — _{name}_")
-
-    await _reply(update, "\n".join(lines), show_menu=True, participant=participant)
+    await _reply(update, '\n'.join(lines), show_menu=True, participant=participant)
 
 def format_local(dt):
     if not dt:
