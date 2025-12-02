@@ -18,6 +18,7 @@ from meetbot.models import (
     Donation,
     Subscription,
     SubscriptionType,
+    SpeakerApplication,
 )
 from meetbot.services.networking import (
     count_profiles_for_event,
@@ -29,7 +30,6 @@ from meetbot.services.networking import (
 )
 from meetbot.services.donations import create_donation, create_yookassa_payment, refresh_payment_status
 from meetbot.services.talks import create_question, finish_talk, get_current_talk, get_next_talk, start_talk
-from meetbot.services.program import get_program_text
 
 from .constants import (
     CB_MAIN_MENU,
@@ -43,6 +43,9 @@ from .constants import (
     CB_ORGANIZER_MENU,
     CB_DONATE_PAY_PREFIX,
     CB_DONATE_STATUS_PREFIX,
+    CB_DONATIONS,
+    CB_SPEAKER_APPLY,
+    CB_PROGRAM_NOTIFY,
     CB_TALK_FINISH_PREFIX,
     CB_TALK_START_PREFIX,
     CB_TALK_SELECT_PREFIX,
@@ -53,10 +56,13 @@ from .constants import (
     CB_SUBSCRIBE_EVENT,
     CB_SUBSCRIBE_FUTURE,
     CMD_ASK,
+    CMD_DONATIONS,
+    CMD_SPEAKER_APPLY,
     CMD_CANCEL,
     CMD_HEALTH,
     CMD_NETWORKING,
     CMD_PROGRAM,
+    CMD_PROGRAM_NOTIFY,
     CMD_START,
     BotState,
     ORG_SHOW_QUESTIONS,
@@ -86,6 +92,7 @@ def _menu_keyboard(participant: Participant | None = None) -> InlineKeyboardMark
         buttons.append([InlineKeyboardButton('🎤 Панель докладчика', callback_data=CB_SPEAKER_MENU)])
     if is_organizer:
         buttons.append([InlineKeyboardButton('🛠 Панель организатора', callback_data=CB_ORGANIZER_MENU)])
+    buttons.append([InlineKeyboardButton('🎙 Хочу быть спикером', callback_data=CB_SPEAKER_APPLY)])
     return InlineKeyboardMarkup(buttons)
 
 
@@ -238,6 +245,77 @@ async def subscribe(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await _send_with_markup(update, '\n'.join(text_parts), InlineKeyboardMarkup(buttons))
 
 
+async def donations_report(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    participant = await _ensure_participant_async(update)
+    if not participant or not participant.is_organizer:
+        await _reply(update, 'Отчёт по донатам доступен только организаторам.', show_menu=True, participant=participant)
+        return
+    event = await _get_active_event_async()
+    if not event:
+        await _reply(update, 'Нет активного события.', show_menu=True, participant=participant)
+        return
+    summary = await _donations_summary_async(event)
+    lines = [f'Донаты по событию: {event.name}']
+    lines.append(f"Всего: {summary['total']} ₽, платежей: {summary['count']}")
+    if summary['items']:
+        lines.append('Последние платежи:')
+        for d in summary['items']:
+            lines.append(f"{d['amount']} ₽ — {d['status']} ({d['who']})")
+    else:
+        lines.append('Пока нет донатов.')
+    await _reply(update, '\n'.join(lines), show_menu=True, participant=participant)
+
+
+async def program_notify(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    participant = await _ensure_participant_async(update)
+    if not participant or not participant.is_organizer:
+        await _reply(update, 'Оповестить о программе может только организатор.', show_menu=True, participant=participant)
+        return
+
+    event = await _get_active_event_async()
+    subscribers = await _list_subscribers_async(event) if event else []
+    chosen_event = event
+
+    # если нет подписчиков на активное событие — пробуем последнее событие из подписок
+    if not subscribers:
+        chosen_event = await _get_subscribed_event_async()
+        if chosen_event:
+            subscribers = await _list_subscribers_async(chosen_event)
+
+    if not chosen_event:
+        await _reply(update, 'Нет события для рассылки.', show_menu=True, participant=participant)
+        return
+
+    talks = await _list_event_talks_async(chosen_event)
+    if not talks:
+        await _reply(update, 'В программе нет докладов, оповещать нечего.', show_menu=True, participant=participant)
+        return
+
+    text_lines = [f'Программа события: {chosen_event.name}']
+    for talk in talks:
+        text_lines.append(
+            f"{talk.start_at:%H:%M}-{talk.end_at:%H:%M} {talk.title} — {talk.speaker or 'спикер уточняется'}"
+        )
+    message = '\n'.join(text_lines)
+
+    if not subscribers:
+        await _reply(update, 'Некому отправить — нет подписчиков.', show_menu=True, participant=participant)
+        return
+    sent = 0
+    failed = 0
+    for sub in subscribers:
+        try:
+            await context.application.bot.send_message(chat_id=sub.tg_id, text=message)
+            sent += 1
+        except Exception:
+            failed += 1
+            continue
+    info = f'Рассылка программы ({chosen_event.name}) отправлена {sent} пользователям.'
+    if failed:
+        info += f' Ошибок доставки: {failed}.'
+    await _reply(update, info, show_menu=True, participant=participant)
+
+
 async def health(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await _reply(update, 'ok', show_menu=False)
 
@@ -257,6 +335,10 @@ async def handle_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYP
         CB_ORGANIZER_MENU: organizer_menu,
         CB_DONATE: donate,
         CB_SUBSCRIBE: subscribe,
+        CB_DONATIONS: donations_report,
+        CB_SPEAKER_APPLY: speaker_apply_start,
+        CB_PROGRAM_NOTIFY: program_notify,
+        'program_notify': program_notify,  # для старых сообщений без префикса menu_
     }
     handler = callbacks.get(query.data)
     if handler:
@@ -674,8 +756,6 @@ async def speaker_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         )
         return
 
-    tz = timezone.get_current_timezone()
-
     current_talk = await _get_current_talk_async(event)
     lines = ['Ваши доклады на событие:']
     buttons = []
@@ -713,6 +793,67 @@ async def speaker_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         + '\n\nНажмите “Сделать текущим” перед выходом на сцену и “Завершить доклад”, когда закончили.',
         InlineKeyboardMarkup(buttons),
     )
+
+
+async def speaker_apply_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    participant = await _ensure_participant_async(update)
+    event = await _get_active_event_async()
+    if not event:
+        event = await _get_next_event_async()
+    if event:
+        context.user_data['speaker_apply_event_id'] = event.id
+        hint = f'Запись для события: {event.name}'
+    else:
+        context.user_data.pop('speaker_apply_event_id', None)
+        hint = 'Событие пока не выбрано, привяжем к ближайшему.'
+
+    markup = InlineKeyboardMarkup([[InlineKeyboardButton('Отмена', callback_data=CB_MAIN_MENU)]])
+    await _send_with_markup(
+        update,
+        f'{hint}\n\nКратко опишите тему, с которой хотите выступить.',
+        markup,
+    )
+    return BotState.SPEAKER_APPLY_TOPIC
+
+
+async def speaker_apply_topic(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    context.user_data['speaker_topic'] = update.message.text.strip() if update.message else ''
+    markup = InlineKeyboardMarkup([[InlineKeyboardButton('Отмена', callback_data=CB_MAIN_MENU)]])
+    await update.message.reply_text('Оставьте контакт для связи (телеграм @username или телефон).', reply_markup=markup)
+    return BotState.SPEAKER_APPLY_CONTACT
+
+
+async def speaker_apply_contact(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    contact = update.message.text.strip() if update.message else ''
+    topic = context.user_data.pop('speaker_topic', '')
+    participant = await _ensure_participant_async(update)
+    event_id = context.user_data.pop('speaker_apply_event_id', None)
+    event = await _get_event_by_id_async(event_id) if event_id else await _get_next_event_async()
+
+    # сохраняем в БД
+    await _create_speaker_application_async(participant=participant, event=event, topic=topic, contact=contact)
+
+    organizers = await _list_organizers_async()
+    notify_text = (
+        'Новая заявка спикера:\n'
+        f'Тема: {topic or "не указана"}\n'
+        f'Контакт: {contact}\n'
+        f'Пользователь: {participant or "гость"}\n'
+        f'Событие: {(event.name if event else "следующий митап")}'
+    )
+    for org in organizers:
+        try:
+            await context.application.bot.send_message(chat_id=org.tg_id, text=notify_text)
+        except Exception:
+            continue
+
+    target_event_text = f' для события: {event.name}' if event else ' для ближайшего митапа'
+    await update.message.reply_text(
+        f'Спасибо! Заявка принята{target_event_text}. '
+        'Организаторы свяжутся и отметят вас докладчиком, если тема подойдёт.',
+        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton('Главное меню', callback_data=CB_MAIN_MENU)]]),
+    )
+    return ConversationHandler.END
 
 
 async def organizer_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -769,6 +910,8 @@ async def organizer_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
                     ]
                 )
     buttons.append([InlineKeyboardButton('❓ Вопросы к текущему', callback_data=ORG_SHOW_QUESTIONS)])
+    buttons.append([InlineKeyboardButton('📣 Оповестить о программе', callback_data=CB_PROGRAM_NOTIFY)])
+    buttons.append([InlineKeyboardButton('💸 Донаты', callback_data=CB_DONATIONS)])
     buttons.append([InlineKeyboardButton('Главное меню', callback_data=CB_MAIN_MENU)])
     await _send_with_markup(
         update,
@@ -860,17 +1003,14 @@ async def announce_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 async def announce_send(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     text = update.message.text if update.message else ''
     event = await _get_active_event_async()
-    if not event:
-        await update.message.reply_text('Нет активного события — рассылку не отправил.')
-        return ConversationHandler.END
 
-    recipients = await _list_notification_participants_async()
+    recipients = await _list_subscribers_async(event)
     sent = 0
     for participant in recipients:
         try:
             await context.application.bot.send_message(
                 chat_id=participant.tg_id,
-                text=f'Новость по "{event.name}":\n\n{text}',
+                text=f'Новость{" по " + event.name if event else ""}:\n\n{text}',
             )
             sent += 1
         except Exception:
@@ -992,6 +1132,19 @@ async def _attach_speaker_flag_async(participant: Participant | None, event: Eve
 async def _get_active_event_async() -> Event | None:
     return await sync_to_async(lambda: Event.objects.filter(is_active=True).order_by('-start_at').first(),
                                thread_sensitive=True)()
+
+
+async def _get_next_event_async() -> Event | None:
+    return await sync_to_async(
+        lambda: Event.objects.filter(start_at__gt=timezone.now()).order_by('start_at').first(),
+        thread_sensitive=True,
+    )()
+
+
+async def _get_event_by_id_async(event_id: int) -> Event | None:
+    if not event_id:
+        return None
+    return await sync_to_async(lambda: Event.objects.filter(id=event_id).first(), thread_sensitive=True)()
 
 
 async def _get_profile_async(participant: Participant, event: Event) -> NetworkingProfile | None:
@@ -1309,3 +1462,67 @@ def _donation_markup(donation: Donation) -> InlineKeyboardMarkup:
     )
     buttons.append([InlineKeyboardButton('Главное меню', callback_data=CB_MAIN_MENU)])
     return InlineKeyboardMarkup(buttons)
+
+
+async def _donations_summary_async(event: Event):
+    def _summary():
+        qs = Donation.objects.filter(event=event).order_by('-created_at')
+        total = sum(d.amount for d in qs if d.status == DonationStatus.SUCCEEDED)
+        items = []
+        for d in qs[:5]:
+            who = d.participant or f'#{d.id}'
+            items.append(
+                {
+                    'amount': d.amount,
+                    'status': d.status,
+                    'who': who,
+                }
+            )
+        return {'total': total, 'count': qs.count(), 'items': items}
+
+    return await sync_to_async(_summary, thread_sensitive=True)()
+
+
+async def _list_subscribers_async(event: Event | None):
+    def _subs():
+        qs = Subscription.objects.filter(is_active=True)
+        if event:
+            qs = qs.filter(subscription_type__in=[SubscriptionType.EVENT, SubscriptionType.FUTURE]).filter(
+                models.Q(event=event) | models.Q(subscription_type=SubscriptionType.FUTURE)
+            )
+        else:
+            qs = qs.filter(subscription_type=SubscriptionType.FUTURE)
+        participant_ids = qs.values_list('participant_id', flat=True)
+        return Participant.objects.filter(id__in=participant_ids)
+
+    from django.db import models
+
+    return await sync_to_async(lambda: list(_subs()), thread_sensitive=True)()
+
+
+async def _list_organizers_async():
+    return await sync_to_async(lambda: list(Participant.objects.filter(is_organizer=True)), thread_sensitive=True)()
+
+
+async def _get_subscribed_event_async() -> Event | None:
+    def _latest():
+        from django.db import models
+        ev_ids = (
+            Subscription.objects.filter(is_active=True, subscription_type=SubscriptionType.EVENT)
+            .values_list('event_id', flat=True)
+            .distinct()
+        )
+        return Event.objects.filter(id__in=ev_ids).order_by('-start_at').first()
+
+    return await sync_to_async(_latest, thread_sensitive=True)()
+
+async def _create_speaker_application_async(participant: Participant | None, event: Event | None, topic: str, contact: str):
+    return await sync_to_async(
+        lambda: SpeakerApplication.objects.create(
+            participant=participant,
+            event=event,
+            topic=topic,
+            contact=contact,
+        ),
+        thread_sensitive=True,
+    )()

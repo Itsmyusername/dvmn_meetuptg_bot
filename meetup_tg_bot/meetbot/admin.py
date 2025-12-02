@@ -12,6 +12,7 @@ from .models import (
     Question,
     Subscription,
     Talk,
+    SpeakerApplication,
 )
 
 
@@ -157,6 +158,13 @@ class DonationAdmin(admin.ModelAdmin):
     )
     readonly_fields = ('created_at',)
 
+
+@admin.register(SpeakerApplication)
+class SpeakerApplicationAdmin(admin.ModelAdmin):
+    list_display = ('id', 'participant', 'event', 'topic', 'status', 'created_at')
+    list_filter = ('status', 'event')
+    search_fields = ('topic', 'contact', 'participant__tg_username', 'participant__first_name', 'participant__last_name')
+    readonly_fields = ('created_at', 'updated_at')
 
 @admin.register(Subscription)
 class SubscriptionAdmin(admin.ModelAdmin):

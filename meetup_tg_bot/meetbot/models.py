@@ -345,3 +345,43 @@ class Subscription(models.Model):
 
     def __str__(self):
         return f'{self.participant} -> {self.subscription_type}'
+
+
+class SpeakerApplicationStatus(models.TextChoices):
+    NEW = 'new', 'Новая'
+    REVIEWED = 'reviewed', 'Рассмотрена'
+
+
+class SpeakerApplication(models.Model):
+    participant = models.ForeignKey(
+        Participant,
+        on_delete=models.SET_NULL,
+        verbose_name='Заявитель',
+        related_name='speaker_applications',
+        null=True,
+        blank=True,
+    )
+    event = models.ForeignKey(
+        Event,
+        on_delete=models.SET_NULL,
+        related_name='speaker_applications',
+        verbose_name='Событие',
+        null=True,
+        blank=True,
+    )
+    topic = models.TextField('Тема доклада')
+    contact = models.CharField('Контакт', max_length=255)
+    status = models.CharField(
+        'Статус',
+        max_length=16,
+        choices=SpeakerApplicationStatus.choices,
+        default=SpeakerApplicationStatus.NEW,
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return f'{self.topic[:30]} ({self.status})'
