@@ -14,7 +14,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     rm -rf /var/lib/apt/lists/*
 
 # копируем файл зависимостей
-COPY ../requirements.txt ./requirements.txt
+#COPY ../requirements.txt ./requirements.txt
+COPY requirements.txt ./requirements.txt
 
 # устанавливаем зависимости
 RUN pip install --no-cache-dir -r requirements.txt
@@ -58,7 +59,7 @@ CMD ["python", "manage.py", "migrate", "--noinput"]
 FROM python:3.10-slim AS web-prod
 
 # создаём рабочую директорию
-WORKDIR /app/meetup_tg_bot
+WORKDIR /app
 
 # копируем зависимости
 COPY --from=py-deps /usr/local /usr/local
@@ -82,6 +83,3 @@ COPY --from=py-deps /usr/local /usr/local
 
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
-
-# копируем backend
-COPY . .

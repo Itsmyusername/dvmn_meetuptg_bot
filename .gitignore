@@ -67,3 +67,5 @@ coverage.xml
 /meetup_tg_bot/staticfiles/
 /meetup_tg_bot/static/
 /db/
+/production_deployment/deploy.sh
+/production_deployment/nginx.sh

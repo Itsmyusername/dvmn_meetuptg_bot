@@ -1,106 +1,64 @@
 import logging
 
-from django.utils import timezone
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import ContextTypes, ConversationHandler
 
-from asgiref.sync import sync_to_async
-from meetbot.models import (
-    Event,
-    NetworkingMatch,
-    NetworkingMatchStatus,
-    NetworkingProfile,
-    Participant,
-    QuestionStatus,
-    Talk,
-    TalkStatus,
-    DonationStatus,
-    Donation,
-    Subscription,
-    SubscriptionType,
-    SpeakerApplication,
+from meetbot.models import DonationStatus, QuestionStatus, SubscriptionType
+from meetbot.services.utils_bot import (
+    _create_donation_async,
+    _create_question_async,
+    _create_yookassa_payment_async,
+    _donation_markup,
+    _donations_summary_async,
+    _ensure_participant_async,
+    _get_active_event_async,
+    _get_donation_by_id_async,
+    _get_current_talk_async,
+    _get_subscribed_event_async,
+    _get_talk_by_id_async,
+    _has_subscription_async,
+    _list_event_talks_async,
+    _list_subscribers_async,
+    _menu_keyboard,
+    _parse_amount_from_callback,
+    _parse_id_from_callback,
+    _refresh_payment_async,
+    _reply,
+    _send_with_markup,
+    _toggle_subscription_async,
 )
-from meetbot.services.networking import (
-    count_profiles_for_event,
-    create_match,
-    get_next_match,
-    get_or_create_profile,
-    get_waiting_profile,
-    mark_match_status,
-)
-from meetbot.services.donations import create_donation, create_yookassa_payment, refresh_payment_status
-from meetbot.services.talks import create_question, finish_talk, get_current_talk, get_next_talk, start_talk
-from meetbot.services.program import  get_program_text
-
 from .constants import (
-    CB_MAIN_MENU,
-    CB_DONATE,
-    CB_NETWORKING,
-    CB_NETWORK_START,
-    CB_NETWORK_SEARCH,
-    CB_PROGRAM,
+    BotState,
     CB_QUESTION,
-    CB_SPEAKER_MENU,
-    CB_ORGANIZER_MENU,
+    CB_DONATE,
     CB_DONATE_PAY_PREFIX,
     CB_DONATE_STATUS_PREFIX,
     CB_DONATIONS,
-    CB_SPEAKER_APPLY,
+    CB_MAIN_MENU,
+    CB_NETWORKING,
+    CB_ORGANIZER_MENU,
+    CB_PROGRAM,
     CB_PROGRAM_NOTIFY,
-    CB_TALK_FINISH_PREFIX,
-    CB_TALK_START_PREFIX,
-    CB_TALK_SELECT_PREFIX,
-    CB_MATCH_ACCEPT,
-    CB_MATCH_SKIP,
-    CB_MATCH_STOP,
+    CB_SPEAKER_APPLY,
+    CB_SPEAKER_MENU,
     CB_SUBSCRIBE,
     CB_SUBSCRIBE_EVENT,
     CB_SUBSCRIBE_FUTURE,
-    CMD_ASK,
-    CMD_DONATIONS,
-    CMD_SPEAKER_APPLY,
-    CMD_CANCEL,
-    CMD_HEALTH,
-    CMD_NETWORKING,
-    CMD_PROGRAM,
-    CMD_PROGRAM_NOTIFY,
-    CMD_START,
-    BotState,
-    ORG_SHOW_QUESTIONS,
+    CB_TALK_SELECT_PREFIX,
 )
+from .event_program import get_program_text
+from .networking_handlers import networking
+from .organizer_panel import organizer_menu
+from .speaker_handlers import speaker_apply_start, speaker_menu
 
 logger = logging.getLogger(__name__)
 
 
-def _menu_keyboard(participant: Participant | None = None) -> InlineKeyboardMarkup:
-    is_speaker = False
-    is_organizer = False
-    if participant:
-        is_speaker = participant.is_speaker or getattr(participant, '_has_speaker_talk', False)
-        is_organizer = participant.is_organizer
-    buttons = [
-        [
-            InlineKeyboardButton('📅 Программа', callback_data=CB_PROGRAM),
-            InlineKeyboardButton('❓ Вопрос спикеру', callback_data=CB_QUESTION),
-        ],
-        [
-            InlineKeyboardButton('🤝 Познакомиться', callback_data=CB_NETWORKING),
-            InlineKeyboardButton('💸 Донат', callback_data=CB_DONATE),
-        ],
-        [InlineKeyboardButton('🔔 Подписка', callback_data=CB_SUBSCRIBE)],
-    ]
-    if is_speaker:
-        buttons.append([InlineKeyboardButton('🎤 Панель докладчика', callback_data=CB_SPEAKER_MENU)])
-    if is_organizer:
-        buttons.append([InlineKeyboardButton('🛠 Панель организатора', callback_data=CB_ORGANIZER_MENU)])
-    buttons.append([InlineKeyboardButton('🎙 Хочу быть спикером', callback_data=CB_SPEAKER_APPLY)])
-    return InlineKeyboardMarkup(buttons)
-
-
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Стартовая команда"""
+    """Стартовая команда."""
     participant = await _ensure_participant_async(update)
     role_hint = 'Гость'
+
     if participant:
         if participant.is_organizer:
             role_hint = 'Организатор'
@@ -115,81 +73,29 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         '• Спикер может завершить доклад кнопкой, чтобы вопросы ушли следующему\n'
         f'Вы зашли как: {role_hint}'
     )
-
     await _reply(update, text, show_menu=True, participant=participant)
 
 
 async def program(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     participant = await _ensure_participant_async(update)
-
     text = await get_program_text()
-
-    await _reply(
-        update,
-        text,
-        show_menu=True,
-        participant=participant,
-    )
+    await _reply(update, text, show_menu=True, participant=participant)
 
 
 async def ask(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await ask_start(update, context)
 
 
-async def networking(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    participant = await _ensure_participant_async(update)
-    event = await _get_active_event_async()
-    has_profile = False
-    profile = None
-    if participant and event:
-        profile = await _get_profile_async(participant, event)
-        has_profile = profile is not None
-
-    text = (
-        'Познакомимся:\n'
-        '1) Заполните короткую анкету\n'
-        '2) Получите анкету собеседника\n'
-        '3) Кнопки: “Связаться”, “Дальше”, “Стоп”\n'
-        '4) Если вы первый, бот напомнит, когда появятся новые анкеты\n'
-        'Контакт видит только человек, которого вы выбрали.'
-    )
-
-    buttons = [
-        [
-            InlineKeyboardButton('Заполнить анкету', callback_data=CB_NETWORK_START),
-            InlineKeyboardButton('Отмена', callback_data=CB_MAIN_MENU),
-        ]
-    ]
-    if has_profile:
-        buttons = [
-            [
-                InlineKeyboardButton('Изменить анкету', callback_data=CB_NETWORK_START),
-                InlineKeyboardButton('Начать знакомство', callback_data=CB_NETWORK_SEARCH),
-            ]
-        ]
-        profile_text = (
-            f"Ваша анкета:\n"
-            f"Роль: {profile.role}\n"
-            f"Компания: {profile.company}\n"
-            f"Стек: {profile.stack}\n"
-            f"Интересы: {profile.interests}\n"
-            f"Контакт: {profile.contact}"
-        )
-        text = profile_text
-
-    markup = InlineKeyboardMarkup(buttons)
-    if update.message:
-        await update.message.reply_text(text, reply_markup=markup)
-    elif update.callback_query:
-        await update.callback_query.answer()
-        await update.callback_query.edit_message_text(text, reply_markup=markup)
-
-
 async def donate(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     participant = await _ensure_participant_async(update)
     event = await _get_active_event_async()
     if not event:
-        await _reply(update, 'Нет активного события. Донаты включим, когда стартует митап.', show_menu=True, participant=participant)
+        await _reply(
+            update,
+            'Нет активного события. Донаты включим, когда стартует митап.',
+            show_menu=True,
+            participant=participant,
+        )
         return
 
     buttons = [
@@ -216,15 +122,20 @@ async def subscribe(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
     event_sub_active = False
     if event:
-        event_sub_active = await _has_subscription_async(participant, event, SubscriptionType.EVENT)
-    future_sub_active = await _has_subscription_async(participant, None, SubscriptionType.FUTURE)
+        event_sub_active = await _has_subscription_async(
+            participant, event, SubscriptionType.EVENT
+        )
+    future_sub_active = await _has_subscription_async(
+        participant, None, SubscriptionType.FUTURE
+    )
 
     buttons = []
     if event:
         buttons.append(
             [
                 InlineKeyboardButton(
-                    f"{'✅' if event_sub_active else '➕'} Обновления текущего события",
+                    f"{'✅' if event_sub_active else '➕'} "
+                    "Подписаться на уведомления текущего мероприятия",
                     callback_data=CB_SUBSCRIBE_EVENT,
                 )
             ]
@@ -232,7 +143,8 @@ async def subscribe(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     buttons.append(
         [
             InlineKeyboardButton(
-                f"{'✅' if future_sub_active else '➕'} Уведомлять о следующих митапах",
+                f"{'✅' if future_sub_active else '➕'} "
+                'Уведомлять о следующих митапах',
                 callback_data=CB_SUBSCRIBE_FUTURE,
             )
         ]
@@ -241,7 +153,7 @@ async def subscribe(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
     text_parts = ['Подписки:']
     if event:
-        text_parts.append(f"Текущее событие: {event.name}")
+        text_parts.append(f'Текущее мероприятие: {event.name}')
     text_parts.append('Нажмите на пункт, чтобы включить/выключить подписку.')
     await _send_with_markup(update, '\n'.join(text_parts), InlineKeyboardMarkup(buttons))
 
@@ -249,35 +161,50 @@ async def subscribe(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 async def donations_report(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     participant = await _ensure_participant_async(update)
     if not participant or not participant.is_organizer:
-        await _reply(update, 'Отчёт по донатам доступен только организаторам.', show_menu=True, participant=participant)
+        await _reply(
+            update,
+            'Отчёт по донатам доступен только организаторам.',
+            show_menu=True,
+            participant=participant,
+        )
         return
+
     event = await _get_active_event_async()
     if not event:
         await _reply(update, 'Нет активного события.', show_menu=True, participant=participant)
         return
+
     summary = await _donations_summary_async(event)
     lines = [f'Донаты по событию: {event.name}']
     lines.append(f"Всего: {summary['total']} ₽, платежей: {summary['count']}")
+
     if summary['items']:
         lines.append('Последние платежи:')
-        for d in summary['items']:
-            lines.append(f"{d['amount']} ₽ — {d['status']} ({d['who']})")
+        for donation in summary['items']:
+            lines.append(
+                f"{donation['amount']} ₽ — {donation['status']} ({donation['who']})"
+            )
     else:
         lines.append('Пока нет донатов.')
+
     await _reply(update, '\n'.join(lines), show_menu=True, participant=participant)
 
 
 async def program_notify(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     participant = await _ensure_participant_async(update)
     if not participant or not participant.is_organizer:
-        await _reply(update, 'Оповестить о программе может только организатор.', show_menu=True, participant=participant)
+        await _reply(
+            update,
+            'Оповестить о программе может только организатор.',
+            show_menu=True,
+            participant=participant,
+        )
         return
 
     event = await _get_active_event_async()
     subscribers = await _list_subscribers_async(event) if event else []
     chosen_event = event
 
-    # если нет подписчиков на активное событие — пробуем последнее событие из подписок
     if not subscribers:
         chosen_event = await _get_subscribed_event_async()
         if chosen_event:
@@ -289,19 +216,26 @@ async def program_notify(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
     talks = await _list_event_talks_async(chosen_event)
     if not talks:
-        await _reply(update, 'В программе нет докладов, оповещать нечего.', show_menu=True, participant=participant)
+        await _reply(
+            update,
+            'В программе нет докладов, оповещать нечего.',
+            show_menu=True,
+            participant=participant,
+        )
         return
 
     text_lines = [f'Программа события: {chosen_event.name}']
     for talk in talks:
         text_lines.append(
-            f"{talk.start_at:%H:%M}-{talk.end_at:%H:%M} {talk.title} — {talk.speaker or 'спикер уточняется'}"
+            f'{talk.start_at:%H:%M}-{talk.end_at:%H:%M} {talk.title} — '
+            f"{talk.speaker or 'спикер уточняется'}"
         )
     message = '\n'.join(text_lines)
 
     if not subscribers:
         await _reply(update, 'Некому отправить — нет подписчиков.', show_menu=True, participant=participant)
         return
+
     sent = 0
     failed = 0
     for sub in subscribers:
@@ -310,7 +244,7 @@ async def program_notify(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             sent += 1
         except Exception:
             failed += 1
-            continue
+
     info = f'Рассылка программы ({chosen_event.name}) отправлена {sent} пользователям.'
     if failed:
         info += f' Ошибок доставки: {failed}.'
@@ -322,10 +256,11 @@ async def health(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
 
 async def handle_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Ответы на кнопки главного меню (заглушки)."""
+    """Ответы на кнопки главного меню."""
     query = update.callback_query
     if not query:
         return
+
     logger.info('Menu callback received: %s', query.data)
 
     callbacks = {
@@ -339,7 +274,7 @@ async def handle_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYP
         CB_DONATIONS: donations_report,
         CB_SPEAKER_APPLY: speaker_apply_start,
         CB_PROGRAM_NOTIFY: program_notify,
-        'program_notify': program_notify,  # для старых сообщений без префикса menu_
+        'program_notify': program_notify,  # для старых сообщений
     }
     handler = callbacks.get(query.data)
     if handler:
@@ -362,28 +297,36 @@ async def ask_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     participant = await _ensure_participant_async(update)
     event = await _get_active_event_async()
     if not event:
-        await _reply(update, 'Сейчас нет активного события. Загляните позже.', show_menu=True, participant=participant)
+        await _reply(
+            update,
+            'Сейчас нет активного события. Загляните позже.',
+            show_menu=True,
+            participant=participant,
+        )
         return ConversationHandler.END
 
-    # если выбрали доклад из списка
     if update.callback_query and update.callback_query.data.startswith(CB_TALK_SELECT_PREFIX):
         try:
             talk_id = int(update.callback_query.data.replace(CB_TALK_SELECT_PREFIX, '', 1))
         except ValueError:
             talk_id = None
+
         talk = await _get_talk_by_id_async(talk_id) if talk_id else None
         if not talk:
-            await _reply(update, 'Доклад не найден. Попробуйте выбрать снова.', show_menu=True, participant=participant)
+            await _reply(
+                update,
+                'Доклад не найден. Попробуйте выбрать снова.',
+                show_menu=True,
+                participant=participant,
+            )
             return ConversationHandler.END
+
         context.user_data['current_talk_id'] = talk.id
-        speaker = talk.speaker or None
-        speaker_text = f"Докладчик: {speaker}" if speaker else 'Докладчик: уточняется'
+        speaker_text = f'Докладчик: {talk.speaker}' if talk.speaker else 'Докладчик: уточняется'
         await _reply(
             update,
-            (
-                f"Доклад:\n{talk.title}\n{speaker_text}\n\n"
-                "Напишите ваш вопрос, я передам спикеру."
-            ),
+            f'Доклад:\n{talk.title}\n{speaker_text}\n\n'
+            'Напишите ваш вопрос, я передам спикеру.',
             show_menu=False,
             participant=participant,
         )
@@ -392,21 +335,14 @@ async def ask_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     talk = await _get_current_talk_async(event)
     if talk:
         context.user_data['current_talk_id'] = talk.id
-        speaker = talk.speaker or None
-        speaker_text = f"Докладчик: {speaker}" if speaker else 'Докладчик: уточняется'
+        speaker_text = f'Докладчик: {talk.speaker}' if talk.speaker else 'Докладчик: уточняется'
         await _send_with_markup(
             update,
-            (
-                f"Сейчас идёт доклад:\n{talk.title}\n{speaker_text}\n\n"
-                "Напишите ваш вопрос, я передам спикеру."
-            ),
+            f'Сейчас идёт доклад:\n{talk.title}\n{speaker_text}\n\n'
+            'Напишите ваш вопрос, я передам спикеру.',
             InlineKeyboardMarkup([[InlineKeyboardButton('Отмена', callback_data=CB_MAIN_MENU)]]),
         )
         return BotState.ASK_TEXT
-
-    if talk is None:
-        await _reply(update, 'Нет активного доклада. Попробуйте позже.', show_menu=True, participant=participant)
-        return ConversationHandler.END
 
     talks = await _list_event_talks_async(event)
     if not talks:
@@ -421,29 +357,35 @@ async def ask_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     buttons = [
         [
             InlineKeyboardButton(
-                f"{t.start_at:%H:%M} {t.title[:40]}",
-                callback_data=f"{CB_TALK_SELECT_PREFIX}{t.id}",
+                f'{t.start_at:%H:%M} {t.title[:40]}',
+                callback_data=f'{CB_TALK_SELECT_PREFIX}{t.id}',
             )
         ]
         for t in talks[:6]
     ]
     buttons.append([InlineKeyboardButton('Главное меню', callback_data=CB_MAIN_MENU)])
-    markup = InlineKeyboardMarkup(buttons)
+
     text = 'Выберите доклад, которому хотите задать вопрос.'
+    markup = InlineKeyboardMarkup(buttons)
+
     if update.message:
         await update.message.reply_text(text, reply_markup=markup)
     elif update.callback_query:
         await update.callback_query.answer()
         await update.callback_query.edit_message_text(text, reply_markup=markup)
+
     return ConversationHandler.END
 
 
 async def ask_save(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    question_text = update.message.text if update.message else ''
+    if not update.message:
+        return ConversationHandler.END
+
+    question_text = update.message.text or ''
     participant = await _ensure_participant_async(update)
     event = await _get_active_event_async()
-    talk = None
 
+    talk = None
     talk_id = context.user_data.pop('current_talk_id', None)
     if talk_id:
         talk = await _get_talk_by_id_async(talk_id)
@@ -454,107 +396,14 @@ async def ask_save(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         await _reply(update, 'Нет активного доклада. Попробуйте позже.', show_menu=True, participant=participant)
         return ConversationHandler.END
 
-    question = await _create_question_async(talk=talk, author=participant, text=question_text)
-    # отправка в реальном времени
-    # delivered = await _notify_speaker_async(question, context.application.bot)
-    # if delivered:
-    #     await _set_question_status_async(question, QuestionStatus.SENT_TO_SPEAKER)
+    await _create_question_async(talk=talk, author=participant, text=question_text)
 
     buttons = [
         [InlineKeyboardButton('Задать ещё вопрос', callback_data=CB_QUESTION)],
         [InlineKeyboardButton('Главное меню', callback_data=CB_MAIN_MENU)],
     ]
-    markup = InlineKeyboardMarkup(buttons)
-
-    await update.message.reply_text(
-        'Спасибо! Вопрос передал спикеру.',
-        reply_markup=markup
-    )
+    await update.message.reply_text('Спасибо! Вопрос передал спикеру.', reply_markup=InlineKeyboardMarkup(buttons))
     return ConversationHandler.END
-
-
-async def networking_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    if update.callback_query and update.callback_query.data == CB_NETWORK_SEARCH:
-        participant = await _ensure_participant_async(update)
-        event = await _get_active_event_async()
-        if not (participant and event):
-            await _reply(update, 'Нет активного мероприятия. Попробуйте позже.', show_menu=True)
-            return ConversationHandler.END
-        profile = await _get_profile_async(participant, event)
-        if not profile:
-            await _reply(update, 'Анкета не найдена. Заполните её сначала.', show_menu=True)
-            return ConversationHandler.END
-        return await _start_matching(profile, update, context)
-
-    await _reply(update, 'Кто вы по роли? (например, backend, data, PM). /cancel для отмены.', show_menu=False)
-    return BotState.NETWORKING_ROLE
-
-
-async def networking_role(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    context.user_data['role'] = update.message.text
-    await update.message.reply_text('Где работаете? (компания/команда).')
-    return BotState.NETWORKING_COMPANY
-
-
-async def networking_company(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    context.user_data['company'] = update.message.text
-    await update.message.reply_text('Какой ваш стек или ключевые технологии?')
-    return BotState.NETWORKING_STACK
-
-
-async def networking_stack(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    context.user_data['stack'] = update.message.text
-    await update.message.reply_text('Ваши интересы/темы для обсуждения?')
-    return BotState.NETWORKING_INTERESTS
-
-
-async def networking_interests(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    context.user_data['interests'] = update.message.text
-    await update.message.reply_text('Оставьте контакт в Telegram (@username).')
-    return BotState.NETWORKING_CONTACT
-
-
-async def networking_contact(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    context.user_data['contact'] = update.message.text
-    user = await _ensure_participant_async(update)
-    event = await _get_active_event_async()
-    if not user or not event:
-        await update.message.reply_text('Нет активного мероприятия. Попробуйте позже.')
-        return ConversationHandler.END
-
-    profile = await _get_or_create_profile_async(
-        participant=user,
-        event=event,
-        role=context.user_data.get('role', ''),
-        company=context.user_data.get('company', ''),
-        stack=context.user_data.get('stack', ''),
-        interests=context.user_data.get('interests', ''),
-        contact=context.user_data.get('contact', ''),
-    )
-    await update.message.reply_text(
-        f"Анкета сохранена:\n"
-        f"Роль: {profile.role}\n"
-        f"Компания: {profile.company}\n"
-        f"Стек: {profile.stack}\n"
-        f"Интересы: {profile.interests}\n"
-        f"Контакт: {profile.contact}\n"
-        "Ищу для вас собеседника..."
-    )
-
-    target = await _get_next_match_async(profile)
-    if not target:
-        await _send_search_menu(
-            update,
-            'Вы первый в очереди. Напомню, когда появится ещё анкета.\nМожно вернуться в меню или попробовать поиск позже.',
-        )
-        await _notify_waiting_async(profile, context.application.bot)
-        return ConversationHandler.END
-
-    match = await _create_match_async(source_profile=profile, target_profile=target)
-    context.user_data['current_match_id'] = match.id
-    await _send_match_card(update, target, match)
-    await _notify_waiting_async(profile, context.application.bot)
-    return BotState.NETWORKING_MATCH
 
 
 async def donate_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -563,11 +412,15 @@ async def donate_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
     if not event:
         await _reply(update, 'Нет активного события. Донаты включим позже.', show_menu=True, participant=participant)
         return ConversationHandler.END
+
     await _reply(update, 'Введите сумму доната в рублях. /cancel для отмены.', show_menu=False)
     return BotState.DONATE_AMOUNT
 
 
 async def donate_amount(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    if not update.message:
+        return ConversationHandler.END
+
     amount_text = (update.message.text or '').strip()
     participant = await _ensure_participant_async(update)
     event = await _get_active_event_async()
@@ -605,11 +458,17 @@ async def donate_amount(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
 
 
 async def subscribe_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    await _reply(update, 'Подписка на что? Напишите "событие" или "будущие". /cancel для отмены.')
+    await _reply(
+        update,
+        'Подписка на что? Напишите "событие" или "будущие". /cancel для отмены.',
+    )
     return BotState.SUBSCRIBE_CHOICE
 
 
 async def subscribe_choice(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    if not update.message:
+        return ConversationHandler.END
+
     choice = (update.message.text or '').lower()
     await update.message.reply_text(f'Подписка оформлена: {choice} (заглушка).')
     return ConversationHandler.END
@@ -620,55 +479,19 @@ async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     return ConversationHandler.END
 
 
-async def networking_accept(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    match = await _get_current_match_async(context)
-    if not match:
-        await _reply(update, 'Нет активного предложения. /start', show_menu=True)
-        return ConversationHandler.END
-    await _mark_match_status_async(match, NetworkingMatchStatus.ACCEPTED)
-    await _reply(update, f'Свяжитесь с {match.target_profile.contact or "контактом"}. Удачного общения!',
-                 show_menu=True)
-    context.user_data.pop('current_match_id', None)
-    return ConversationHandler.END
-
-
-async def networking_skip(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    match = await _get_current_match_async(context)
-    if not match:
-        await _reply(update, 'Нет активного предложения. /start', show_menu=True)
-        return ConversationHandler.END
-    await _mark_match_status_async(match, NetworkingMatchStatus.SKIPPED)
-
-    source_profile = match.source_profile
-    next_profile = await _get_next_match_async(source_profile)
-    if not next_profile:
-        await _send_search_menu(
-            update,
-            'Пока анкеты закончились. Как появятся новые — напомню. Можете вернуться в меню или попробовать позже.',
-        )
-        context.user_data.pop('current_match_id', None)
-        return ConversationHandler.END
-
-    new_match = await _create_match_async(source_profile=source_profile, target_profile=next_profile)
-    context.user_data['current_match_id'] = new_match.id
-    await _send_match_card(update, next_profile, new_match)
-    return BotState.NETWORKING_MATCH
-
-
-async def networking_stop(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    await _send_search_menu(update, 'Хорошо, остановил подбор. Вернуться в меню или попробовать ещё позже?')
-    context.user_data.pop('current_match_id', None)
-    return ConversationHandler.END
-
-
 async def subscribe_toggle_event(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     participant = await _ensure_participant_async(update)
     event = await _get_active_event_async()
     if not (participant and event):
         await _reply(update, 'Нет активного события.', show_menu=True, participant=participant)
         return
+
     toggled = await _toggle_subscription_async(participant, event, SubscriptionType.EVENT)
-    msg = 'Подписка на обновления текущего события включена.' if toggled else 'Подписка на обновления текущего события выключена.'
+    msg = (
+        'Подписка на обновления текущего события включена.'
+        if toggled
+        else 'Подписка на обновления текущего события выключена.'
+    )
     await _reply(update, msg, show_menu=True, participant=participant)
 
 
@@ -677,8 +500,13 @@ async def subscribe_toggle_future(update: Update, context: ContextTypes.DEFAULT_
     if not participant:
         await _reply(update, 'Не удалось определить пользователя.', show_menu=True)
         return
+
     toggled = await _toggle_subscription_async(participant, None, SubscriptionType.FUTURE)
-    msg = 'Подписка на будущие митапы включена.' if toggled else 'Подписка на будущие митапы выключена.'
+    msg = (
+        'Подписка на будущие митапы включена.'
+        if toggled
+        else 'Подписка на будущие митапы выключена.'
+    )
     await _reply(update, msg, show_menu=True, participant=participant)
 
 
@@ -688,10 +516,12 @@ async def donate_pay_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
     if not event:
         await _reply(update, 'Нет активного события. Донаты включим позже.', show_menu=True, participant=participant)
         return
+
     amount = _parse_amount_from_callback(update, CB_DONATE_PAY_PREFIX)
     if not amount:
         await _reply(update, 'Не удалось понять сумму. Попробуйте снова.', show_menu=True, participant=participant)
         return
+
     donation = await _create_donation_async(
         participant=participant,
         event=event,
@@ -702,6 +532,7 @@ async def donate_pay_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
     if not donation.confirmation_url:
         await _reply(update, 'Не смогли создать оплату. Попробуйте позже.', show_menu=True, participant=participant)
         return
+
     text = (
         f'Ссылка на оплату {donation.amount} ₽: {donation.confirmation_url}\n'
         'После оплаты нажмите “Проверить статус”. Спасибо!'
@@ -712,13 +543,16 @@ async def donate_pay_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
 async def donate_status(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     donation_id = _parse_id_from_callback(update, CB_DONATE_STATUS_PREFIX)
     participant = await _ensure_participant_async(update)
+
     if not donation_id:
         await _reply(update, 'Платёж не найден.', show_menu=True, participant=participant)
         return
+
     donation = await _get_donation_by_id_async(donation_id)
     if not donation:
         await _reply(update, 'Платёж не найден.', show_menu=True, participant=participant)
         return
+
     donation = await _refresh_payment_async(donation)
     status_text = {
         DonationStatus.PENDING: 'Ожидает оплаты',
@@ -727,259 +561,12 @@ async def donate_status(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         DonationStatus.FAILED: 'Неуспешно',
         DonationStatus.CANCELED: 'Отменено',
     }.get(donation.status, donation.status)
+
     await _send_with_markup(
         update,
         f'Статус платежа: {status_text}\nСумма: {donation.amount} ₽',
         _donation_markup(donation),
     )
-
-
-async def speaker_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    participant = await _ensure_participant_async(update)
-    if not participant or not participant.is_speaker:
-        await _reply(update, 'Панель докладчика доступна только назначенным спикерам.', show_menu=True,
-                     participant=participant)
-        return
-
-    event = await _get_active_event_async()
-    if not event:
-        await _reply(update, 'Нет активного мероприятия. Как только начнётся — напомню.', show_menu=True,
-                     participant=participant)
-        return
-
-    talks = await _list_speaker_talks_async(participant, event)
-
-    if not talks:
-        await _reply(
-            update,
-            'В программе нет докладов, где вы отмечены спикером. Проверьте с организатором.',
-            show_menu=True,
-            participant=participant,
-        )
-        return
-
-    current_talk = await _get_current_talk_async(event)
-    lines = ['Ваши доклады на событие:']
-    buttons = []
-    for talk in talks:
-        pending = await _count_pending_questions_async(talk)
-        status_emoji = {
-            TalkStatus.IN_PROGRESS: '▶️',
-            TalkStatus.DONE: '✅',
-            TalkStatus.CANCELLED: '🚫',
-        }.get(talk.status, '⏳')
-        line = (
-            f"{status_emoji} {format_local(talk.start_at)}-{format_local(talk.end_at)} {talk.title} "
-            f"(вопросов в очереди: {pending})"
-        )
-        lines.append(line)
-        if talk.status not in (TalkStatus.DONE, TalkStatus.CANCELLED):
-            if current_talk and current_talk.id == talk.id:
-                buttons.append(
-                    [
-                        InlineKeyboardButton('✅ Завершить доклад', callback_data=f'{CB_TALK_FINISH_PREFIX}{talk.id}'),
-                    ]
-                )
-            else:
-                buttons.append(
-                    [InlineKeyboardButton('▶️ Сделать текущим', callback_data=f'{CB_TALK_START_PREFIX}{talk.id}')]
-                )
-    buttons.append([InlineKeyboardButton('❓ Вопросы к текущему', callback_data=ORG_SHOW_QUESTIONS)])
-    buttons.append([InlineKeyboardButton('Главное меню', callback_data=CB_MAIN_MENU)])
-    buttons.append([InlineKeyboardButton('Программа', callback_data=CB_PROGRAM)])
-    buttons.append([InlineKeyboardButton('Задать вопрос', callback_data=CB_QUESTION)])
-
-    await _send_with_markup(
-        update,
-        '\n'.join(lines)
-        + '\n\nНажмите “Сделать текущим” перед выходом на сцену и “Завершить доклад”, когда закончили.',
-        InlineKeyboardMarkup(buttons),
-    )
-
-
-async def speaker_apply_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    participant = await _ensure_participant_async(update)
-    event = await _get_active_event_async()
-    if not event:
-        event = await _get_next_event_async()
-    if event:
-        context.user_data['speaker_apply_event_id'] = event.id
-        hint = f'Запись для события: {event.name}'
-    else:
-        context.user_data.pop('speaker_apply_event_id', None)
-        hint = 'Событие пока не выбрано, привяжем к ближайшему.'
-
-    markup = InlineKeyboardMarkup([[InlineKeyboardButton('Отмена', callback_data=CB_MAIN_MENU)]])
-    await _send_with_markup(
-        update,
-        f'{hint}\n\nКратко опишите тему, с которой хотите выступить.',
-        markup,
-    )
-    return BotState.SPEAKER_APPLY_TOPIC
-
-
-async def speaker_apply_topic(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    context.user_data['speaker_topic'] = update.message.text.strip() if update.message else ''
-    markup = InlineKeyboardMarkup([[InlineKeyboardButton('Отмена', callback_data=CB_MAIN_MENU)]])
-    await update.message.reply_text('Оставьте контакт для связи (телеграм @username или телефон).', reply_markup=markup)
-    return BotState.SPEAKER_APPLY_CONTACT
-
-
-async def speaker_apply_contact(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    contact = update.message.text.strip() if update.message else ''
-    topic = context.user_data.pop('speaker_topic', '')
-    participant = await _ensure_participant_async(update)
-    event_id = context.user_data.pop('speaker_apply_event_id', None)
-    event = await _get_event_by_id_async(event_id) if event_id else await _get_next_event_async()
-
-    # сохраняем в БД
-    await _create_speaker_application_async(participant=participant, event=event, topic=topic, contact=contact)
-
-    organizers = await _list_organizers_async()
-    notify_text = (
-        'Новая заявка спикера:\n'
-        f'Тема: {topic or "не указана"}\n'
-        f'Контакт: {contact}\n'
-        f'Пользователь: {participant or "гость"}\n'
-        f'Событие: {(event.name if event else "следующий митап")}'
-    )
-    for org in organizers:
-        try:
-            await context.application.bot.send_message(chat_id=org.tg_id, text=notify_text)
-        except Exception:
-            continue
-
-    target_event_text = f' для события: {event.name}' if event else ' для ближайшего митапа'
-    await update.message.reply_text(
-        f'Спасибо! Заявка принята{target_event_text}. '
-        'Организаторы свяжутся и отметят вас докладчиком, если тема подойдёт.',
-        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton('Главное меню', callback_data=CB_MAIN_MENU)]]),
-    )
-    return ConversationHandler.END
-
-
-async def organizer_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    participant = await _ensure_participant_async(update)
-    if not participant or not (participant.is_organizer or participant.is_speaker):
-        await _reply(update, "Доступ только для организаторов и спикеров.", show_menu=True, participant=participant)
-        return
-
-    event = await _get_active_event_async()
-    if not event:
-        await _reply(update, 'Нет активного мероприятия. Создайте и активируйте событие в админке.', show_menu=True,
-                     participant=participant)
-        return
-
-    talks = await _list_event_talks_async(event)
-    current_talk = await _get_current_talk_async(event)
-    header = (
-        f'Активное событие: {event.name}\n'
-        f'{event.start_at:%d.%m.%y} {format_local(event.start_at)}–{format_local(event.end_at)}'
-    )
-    if not talks:
-        await _reply(
-            update,
-            header + '\nВ программе пока нет докладов. Добавьте их в админке.',
-            show_menu=True,
-            participant=participant,
-        )
-        return
-
-    lines = [header, '', 'Список докладов:']
-    buttons = []
-    for talk in talks[:15]:
-        pending = await _count_pending_questions_async(talk)
-        marker = '▶️' if current_talk and talk.id == current_talk.id else '•'
-        lines.append(
-            f"{marker} {format_local(talk.start_at)}-{format_local(talk.end_at)} {talk.title} "
-            f"({talk.speaker or 'спикер уточняется'}) — вопросов: {pending}"
-        )
-        if talk.status not in (TalkStatus.DONE, TalkStatus.CANCELLED):
-            if current_talk and talk.id == current_talk.id:
-                buttons.append(
-                    [
-                        InlineKeyboardButton(
-                            f'Завершить: {talk.title[:18]}', callback_data=f'{CB_TALK_FINISH_PREFIX}{talk.id}'
-                        )
-                    ]
-                )
-            else:
-                buttons.append(
-                    [
-                        InlineKeyboardButton(
-                            f'Сделать текущим: {talk.title[:18]}', callback_data=f'{CB_TALK_START_PREFIX}{talk.id}'
-                        )
-                    ]
-                )
-    buttons.append([InlineKeyboardButton('❓ Вопросы к текущему', callback_data=ORG_SHOW_QUESTIONS)])
-    buttons.append([InlineKeyboardButton('📣 Оповестить о программе', callback_data=CB_PROGRAM_NOTIFY)])
-    buttons.append([InlineKeyboardButton('💸 Донаты', callback_data=CB_DONATIONS)])
-    buttons.append([InlineKeyboardButton('Главное меню', callback_data=CB_MAIN_MENU)])
-    await _send_with_markup(
-        update,
-        '\n'.join(lines)
-        + '\n\nОтмечайте текущий доклад вручную — так вопросы уйдут правильному спикеру даже при сдвигах по времени.',
-        InlineKeyboardMarkup(buttons),
-    )
-
-async def talk_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    participant = await _ensure_participant_async(update)
-    talk_id = _parse_id_from_callback(update, CB_TALK_START_PREFIX)
-    talk = await _get_talk_by_id_async(talk_id) if talk_id else None
-    if not talk:
-        await _reply(update, 'Доклад не найден.', show_menu=True, participant=participant)
-        return
-
-    if not participant or not (
-            participant.is_organizer or (participant.is_speaker and talk.speaker_id == participant.id)):
-        await _reply(update, 'Только организатор или назначенный спикер могут менять статус доклада.', show_menu=True,
-                     participant=participant)
-        return
-
-    await _start_talk_async(talk)
-    if update.callback_query:
-        await update.callback_query.answer('Доклад сделан текущим.')
-    if participant.is_organizer:
-        await organizer_menu(update, context)
-    elif participant.is_speaker:
-        await speaker_menu(update, context)
-    else:
-        await _reply(
-            update,
-            f'Отметил доклад "{talk.title}" как текущий. Вопросы пойдут этому спикеру.',
-            show_menu=True,
-            participant=participant,
-        )
-
-
-async def talk_finish(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    participant = await _ensure_participant_async(update)
-    talk_id = _parse_id_from_callback(update, CB_TALK_FINISH_PREFIX)
-    talk = await _get_talk_by_id_async(talk_id) if talk_id else None
-    if not talk:
-        await _reply(update, 'Доклад не найден.', show_menu=True, participant=participant)
-        return
-
-    if not participant or not (
-            participant.is_organizer or (participant.is_speaker and talk.speaker_id == participant.id)):
-        await _reply(update, 'Только организатор или назначенный спикер могут завершать доклад.', show_menu=True,
-                     participant=participant)
-        return
-
-    await _finish_talk_async(talk)
-    if update.callback_query:
-        await update.callback_query.answer('Доклад завершён.')
-    if participant.is_organizer:
-        await organizer_menu(update, context)
-    elif participant.is_speaker:
-        await speaker_menu(update, context)
-    else:
-        await _reply(
-            update,
-            f'Доклад "{talk.title}" завершён. Следующие вопросы уйдут следующему спикеру.',
-            show_menu=True,
-            participant=participant,
-        )
 
 
 async def announce_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -1003,528 +590,23 @@ async def announce_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
 
 async def announce_send(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    text = update.message.text if update.message else ''
+    if not update.message:
+        return ConversationHandler.END
+
+    text = update.message.text or ''
     event = await _get_active_event_async()
 
-    recipients = await _list_subscribers_async(event)
+    recipients = await _list_subscribers_async(event) if event else []
     sent = 0
     for participant in recipients:
         try:
             await context.application.bot.send_message(
                 chat_id=participant.tg_id,
-                text=f'Новость{" по " + event.name if event else ""}:\n\n{text}',
+                text=f"Новость{' по ' + event.name if event else ''}:\n\n{text}",
             )
             sent += 1
         except Exception:
             continue
+
     await update.message.reply_text(f'Рассылка отправлена {sent} участникам.')
     return ConversationHandler.END
-
-async def organizer_show_questions(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    participant = await _ensure_participant_async(update)
-    if not participant or not (participant.is_organizer or participant.is_speaker):
-        await _reply(update, "Доступ только для организаторов и спикеров.", show_menu=True, participant=participant)
-        return
-
-    event = await _get_active_event_async()
-    if not event:
-        await _reply(update, 'Нет активного события.', show_menu=True, participant=participant)
-        return
-
-    talk = await _get_current_talk_async(event)
-    if not talk:
-        await _reply(update, 'Нет активного доклада.', show_menu=True, participant=participant)
-        return
-
-    questions = await sync_to_async(
-        lambda: list(
-            talk.questions.select_related('author').order_by('asked_at')
-        ),
-        thread_sensitive=True
-    )()
-
-    if not questions:
-        await _reply(update, 'Нет вопросов к текущему докладу.', show_menu=True, participant=participant)
-        return
-
-    lines = [f"Вопросы к докладу:\n*{talk.title}*\n"]
-    for q in questions:
-        author = q.author
-
-        if author and author.tg_username:
-            name = f"@{author.tg_username}"
-        else:
-            # fallback на имя или Аноним
-            name = (
-                (f"{author.first_name or ''} {author.last_name or ''}".strip())
-                if author and (author.first_name or author.last_name)
-                else "Аноним"
-            )
-        safe_name = name.replace('_', '\\_')
-        lines.append(f"• {q.text} — `{safe_name}`")
-
-    await _reply(update, '\n'.join(lines), show_menu=True, participant=participant)
-
-def format_local(dt):
-    if not dt:
-        return ""
-    tz = timezone.get_current_timezone()
-    return dt.astimezone(tz).strftime('%H:%M')
-
-async def _reply(update: Update, text: str, show_menu: bool = False, participant: Participant | None = None) -> None:
-    """message или callback"""
-    markup = None
-    if show_menu:
-        if participant is None:
-            participant = await _ensure_participant_async(update)
-        event = await _get_active_event_async()
-        participant = await _attach_speaker_flag_async(participant, event)
-        markup = _menu_keyboard(participant)
-    if update.message:
-        await update.message.reply_text(
-            text,
-            reply_markup=markup,
-            parse_mode='Markdown'
-        )
-    elif update.callback_query:
-        await update.callback_query.answer()
-        try:
-            await update.callback_query.edit_message_text(
-                text,
-                reply_markup=markup,
-                parse_mode='Markdown'
-            )
-        except Exception:
-            await update.callback_query.message.reply_text(
-                text,
-                reply_markup=markup,
-                parse_mode='Markdown'
-            )
-
-
-def _ensure_participant(update: Update) -> Participant | None:
-    tg_user = update.effective_user
-    if not tg_user:
-        return None
-    participant, _ = Participant.objects.get_or_create(
-        tg_id=tg_user.id,
-        defaults={
-            'tg_username': tg_user.username or '',
-            'first_name': tg_user.first_name or '',
-            'last_name': tg_user.last_name or '',
-        },
-    )
-    return participant
-
-
-async def _ensure_participant_async(update: Update) -> Participant | None:
-    return await sync_to_async(_ensure_participant, thread_sensitive=True)(update)
-
-
-async def _attach_speaker_flag_async(participant: Participant | None, event: Event | None) -> Participant | None:
-    """Помечает участника как спикера для меню, если он привязан к докладу активного события."""
-    if not (participant and event):
-        return participant
-    has_talk = await _has_speaker_talk_async(participant, event)
-    if has_talk:
-        participant._has_speaker_talk = True  # noqa: SLF001
-    return participant
-
-
-async def _get_active_event_async() -> Event | None:
-    return await sync_to_async(lambda: Event.objects.filter(is_active=True).order_by('-start_at').first(),
-                               thread_sensitive=True)()
-
-
-async def _get_next_event_async() -> Event | None:
-    return await sync_to_async(
-        lambda: Event.objects.filter(start_at__gt=timezone.now()).order_by('start_at').first(),
-        thread_sensitive=True,
-    )()
-
-
-async def _get_event_by_id_async(event_id: int) -> Event | None:
-    if not event_id:
-        return None
-    return await sync_to_async(lambda: Event.objects.filter(id=event_id).first(), thread_sensitive=True)()
-
-
-async def _get_profile_async(participant: Participant, event: Event) -> NetworkingProfile | None:
-    return await sync_to_async(
-        lambda: NetworkingProfile.objects.filter(participant=participant, event=event, is_active=True).first(),
-        thread_sensitive=True,
-    )()
-
-
-async def _get_current_talk_async(event: Event) -> Talk | None:
-    return await sync_to_async(get_current_talk, thread_sensitive=True)(event)
-
-
-async def _get_next_talk_async(event: Event) -> Talk | None:
-    return await sync_to_async(get_next_talk, thread_sensitive=True)(event)
-
-
-async def _has_profile_async(participant: Participant, event: Event) -> bool:
-    return await sync_to_async(
-        lambda: NetworkingProfile.objects.filter(participant=participant, event=event, is_active=True).exists(),
-        thread_sensitive=True,
-    )()
-
-
-async def _send_match_card(update: Update, target, match) -> None:
-    text = (
-        f"Кандидат:\n"
-        f"Роль: {target.role}\n"
-        f"Компания: {target.company}\n"
-        f"Стек: {target.stack}\n"
-        f"Интересы: {target.interests}\n"
-        f"Контакт: {target.contact}\n"
-        f"Как поступить?"
-    )
-    buttons = [
-        [InlineKeyboardButton('Связаться', callback_data=CB_MATCH_ACCEPT)],
-        [InlineKeyboardButton('Дальше', callback_data=CB_MATCH_SKIP)],
-        [InlineKeyboardButton('Стоп', callback_data=CB_MATCH_STOP)],
-    ]
-    if update.callback_query:
-        await update.callback_query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(buttons))
-    else:
-        await update.message.reply_text(text, reply_markup=InlineKeyboardMarkup(buttons))
-
-
-def _search_end_markup() -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(
-        [
-            [InlineKeyboardButton('Попробовать ещё', callback_data=CB_NETWORK_SEARCH)],
-            [InlineKeyboardButton('Главное меню', callback_data=CB_MAIN_MENU)],
-        ]
-    )
-
-
-async def _send_search_menu(update: Update, text: str) -> None:
-    if update.message:
-        await update.message.reply_text(text, reply_markup=_search_end_markup())
-    elif update.callback_query:
-        await update.callback_query.answer()
-        try:
-            await update.callback_query.edit_message_text(text, reply_markup=_search_end_markup())
-        except Exception:
-            await update.callback_query.message.reply_text(text, reply_markup=_search_end_markup())
-
-
-def _get_current_match(context: ContextTypes.DEFAULT_TYPE) -> NetworkingMatch | None:
-    match_id = context.user_data.get('current_match_id')
-    if not match_id:
-        return None
-    try:
-        return NetworkingMatch.objects.select_related('source_profile', 'target_profile').get(id=match_id)
-    except NetworkingMatch.DoesNotExist:
-        return None
-
-
-async def _get_or_create_profile_async(**kwargs) -> NetworkingProfile:
-    return await sync_to_async(get_or_create_profile, thread_sensitive=True)(**kwargs)
-
-
-async def _get_next_match_async(profile: NetworkingProfile) -> NetworkingProfile | None:
-    return await sync_to_async(get_next_match, thread_sensitive=True)(profile)
-
-
-async def _create_match_async(**kwargs) -> NetworkingMatch:
-    return await sync_to_async(create_match, thread_sensitive=True)(**kwargs)
-
-
-async def _mark_match_status_async(match: NetworkingMatch, status: str) -> NetworkingMatch:
-    return await sync_to_async(mark_match_status, thread_sensitive=True)(match, status)
-
-
-async def _notify_waiting_async(profile: NetworkingProfile, bot) -> None:
-    waiting = await sync_to_async(get_waiting_profile, thread_sensitive=True)(profile)
-    if not waiting:
-        return
-    match = await _create_match_async(source_profile=waiting, target_profile=profile)
-    text = (
-        f"Нашёлся собеседник!\n"
-        f"Роль: {profile.role}\n"
-        f"Компания: {profile.company}\n"
-        f"Стек: {profile.stack}\n"
-        f"Интересы: {profile.interests}\n"
-        f"Контакт: {profile.contact}\n"
-        "Если хотите пообщаться — нажмите /networking."
-    )
-    try:
-        await bot.send_message(chat_id=waiting.participant.tg_id, text=text)
-    except Exception:
-        pass
-
-
-async def _get_current_match_async(context: ContextTypes.DEFAULT_TYPE) -> NetworkingMatch | None:
-    return await sync_to_async(_get_current_match, thread_sensitive=True)(context)
-
-
-async def _start_matching(profile: NetworkingProfile, update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    target = await _get_next_match_async(profile)
-    if not target:
-        await _send_search_menu(
-            update,
-            'Пока нет анкет, чтобы познакомить. Как появятся новые — напомню. Можно вернуться в меню или попробовать позже.',
-        )
-        await _notify_waiting_async(profile, context.application.bot)
-        return ConversationHandler.END
-    match = await _create_match_async(source_profile=profile, target_profile=target)
-    context.user_data['current_match_id'] = match.id
-    await _send_match_card(update, target, match)
-    return BotState.NETWORKING_MATCH
-
-
-async def _get_talk_by_id_async(talk_id: int) -> Talk | None:
-    return await sync_to_async(lambda: Talk.objects.select_related('speaker').filter(id=talk_id).first(),
-                               thread_sensitive=True)()
-
-
-async def _create_question_async(**kwargs):
-    return await sync_to_async(create_question, thread_sensitive=True)(**kwargs)
-
-
-async def _notify_speaker_async(question, bot) -> bool:
-    talk = question.talk
-    speaker = talk.speaker
-    if not (speaker and speaker.tg_id):
-        return False
-
-    author = question.author
-    author_name = 'Аноним'
-    if author:
-        parts = [author.first_name, author.last_name]
-        fallback_name = ' '.join([p for p in parts if p]).strip()
-        if author.tg_username:
-            author_name = f"@{author.tg_username}"
-        elif fallback_name:
-            author_name = fallback_name
-    text = (
-        f"Вопрос к вашему докладу:\n"
-        f"{talk.title}\n\n"
-        f"{question.text}\n\n"
-        f"От: {author_name}"
-    )
-    try:
-        await bot.send_message(chat_id=speaker.tg_id, text=text)
-        return True
-    except Exception:
-        return False
-
-
-async def _list_event_talks_async(event: Event):
-    return await sync_to_async(lambda: list(event.talks.select_related('speaker').order_by('start_at')),
-                               thread_sensitive=True)()
-
-
-async def _set_question_status_async(question, status: str) -> None:
-    def _set_status(q, s):
-        q.status = s
-        q.save(update_fields=['status'])
-
-    await sync_to_async(_set_status, thread_sensitive=True)(question, status)
-
-# Все вопросы
-# async def _count_pending_questions_async(talk: Talk) -> int:
-#     return await sync_to_async(
-#         lambda: talk.questions.count(),
-#         thread_sensitive=True,
-#     )()
-
-# Не отвеченные
-async def _count_pending_questions_async(talk: Talk) -> int:
-    return await sync_to_async(
-        lambda: talk.questions.filter(status=QuestionStatus.PENDING).count(),
-        thread_sensitive=True,
-    )()
-
-
-async def _list_speaker_talks_async(participant: Participant, event: Event):
-    return await sync_to_async(
-        lambda: list(
-            event.talks.select_related('speaker')
-            .filter(speaker=participant)
-            .order_by('start_at')
-        ),
-        thread_sensitive=True,
-    )()
-
-
-async def _has_speaker_talk_async(participant: Participant, event: Event) -> bool:
-    return await sync_to_async(
-        lambda: event.talks.filter(speaker=participant).exists(),
-        thread_sensitive=True,
-    )()
-
-
-async def _start_talk_async(talk: Talk) -> Talk:
-    return await sync_to_async(start_talk, thread_sensitive=True)(talk)
-
-
-async def _finish_talk_async(talk: Talk) -> Talk:
-    return await sync_to_async(finish_talk, thread_sensitive=True)(talk)
-
-
-async def _list_notification_participants_async():
-    return await sync_to_async(
-        lambda: list(Participant.objects.filter(wants_notifications=True)),
-        thread_sensitive=True,
-    )()
-
-
-def _parse_id_from_callback(update: Update, prefix: str) -> int | None:
-    query = update.callback_query
-    if not query or not query.data or not query.data.startswith(prefix):
-        return None
-    try:
-        return int(query.data.replace(prefix, '', 1))
-    except ValueError:
-        return None
-
-
-def _parse_amount_from_callback(update: Update, prefix: str) -> float | None:
-    value = _parse_id_from_callback(update, prefix)
-    if value is None:
-        return None
-    return float(value)
-
-
-async def _send_with_markup(update: Update, text: str, reply_markup) -> None:
-    if update.message:
-        await update.message.reply_text(text, reply_markup=reply_markup)
-    elif update.callback_query:
-        await update.callback_query.answer()
-        try:
-            await update.callback_query.edit_message_text(text, reply_markup=reply_markup)
-        except Exception:
-            await update.callback_query.message.reply_text(text, reply_markup=reply_markup)
-
-
-async def _create_donation_async(participant, event, amount, description):
-    from decimal import Decimal
-
-    return await sync_to_async(create_donation, thread_sensitive=True)(
-        participant=participant,
-        event=event,
-        amount=Decimal(str(amount)),
-        description=description,
-    )
-
-
-async def _create_yookassa_payment_async(donation):
-    return await sync_to_async(create_yookassa_payment, thread_sensitive=True)(donation)
-
-
-async def _get_donation_by_id_async(donation_id: int):
-    return await sync_to_async(
-        lambda: Donation.objects.filter(id=donation_id).select_related('participant', 'event').first(),
-        thread_sensitive=True,
-    )()
-
-
-async def _refresh_payment_async(donation):
-    return await sync_to_async(refresh_payment_status, thread_sensitive=True)(donation)
-
-
-async def _has_subscription_async(participant: Participant, event: Event | None, sub_type: str) -> bool:
-    return await sync_to_async(
-        lambda: Subscription.objects.filter(
-            participant=participant,
-            event=event if sub_type == SubscriptionType.EVENT else None,
-            subscription_type=sub_type,
-            is_active=True,
-        ).exists(),
-        thread_sensitive=True,
-    )()
-
-
-async def _toggle_subscription_async(participant: Participant, event: Event | None, sub_type: str) -> bool:
-    def _toggle():
-        sub, _ = Subscription.objects.get_or_create(
-            participant=participant,
-            event=event if sub_type == SubscriptionType.EVENT else None,
-            subscription_type=sub_type,
-            defaults={'is_active': True},
-        )
-        sub.is_active = not sub.is_active if sub.id else True
-        sub.save(update_fields=['is_active'])
-        return sub.is_active
-
-    return await sync_to_async(_toggle, thread_sensitive=True)()
-
-
-def _donation_markup(donation: Donation) -> InlineKeyboardMarkup:
-    buttons = []
-    if donation.confirmation_url:
-        buttons.append([InlineKeyboardButton('Оплатить', url=donation.confirmation_url)])
-    buttons.append(
-        [InlineKeyboardButton('Проверить статус', callback_data=f'{CB_DONATE_STATUS_PREFIX}{donation.id}')]
-    )
-    buttons.append([InlineKeyboardButton('Главное меню', callback_data=CB_MAIN_MENU)])
-    return InlineKeyboardMarkup(buttons)
-
-
-async def _donations_summary_async(event: Event):
-    def _summary():
-        qs = Donation.objects.filter(event=event).order_by('-created_at')
-        total = sum(d.amount for d in qs if d.status == DonationStatus.SUCCEEDED)
-        items = []
-        for d in qs[:5]:
-            who = d.participant or f'#{d.id}'
-            items.append(
-                {
-                    'amount': d.amount,
-                    'status': d.status,
-                    'who': who,
-                }
-            )
-        return {'total': total, 'count': qs.count(), 'items': items}
-
-    return await sync_to_async(_summary, thread_sensitive=True)()
-
-
-async def _list_subscribers_async(event: Event | None):
-    def _subs():
-        qs = Subscription.objects.filter(is_active=True)
-        if event:
-            qs = qs.filter(subscription_type__in=[SubscriptionType.EVENT, SubscriptionType.FUTURE]).filter(
-                models.Q(event=event) | models.Q(subscription_type=SubscriptionType.FUTURE)
-            )
-        else:
-            qs = qs.filter(subscription_type=SubscriptionType.FUTURE)
-        participant_ids = qs.values_list('participant_id', flat=True)
-        return Participant.objects.filter(id__in=participant_ids)
-
-    from django.db import models
-
-    return await sync_to_async(lambda: list(_subs()), thread_sensitive=True)()
-
-
-async def _list_organizers_async():
-    return await sync_to_async(lambda: list(Participant.objects.filter(is_organizer=True)), thread_sensitive=True)()
-
-
-async def _get_subscribed_event_async() -> Event | None:
-    def _latest():
-        from django.db import models
-        ev_ids = (
-            Subscription.objects.filter(is_active=True, subscription_type=SubscriptionType.EVENT)
-            .values_list('event_id', flat=True)
-            .distinct()
-        )
-        return Event.objects.filter(id__in=ev_ids).order_by('-start_at').first()
-
-    return await sync_to_async(_latest, thread_sensitive=True)()
-
-async def _create_speaker_application_async(participant: Participant | None, event: Event | None, topic: str, contact: str):
-    return await sync_to_async(
-        lambda: SpeakerApplication.objects.create(
-            participant=participant,
-            event=event,
-            topic=topic,
-            contact=contact,
-        ),
-        thread_sensitive=True,
-    )()
